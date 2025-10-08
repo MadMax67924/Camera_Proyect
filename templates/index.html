@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cámara Raspberry Pi - Stream en Vivo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            max-width: 900px;
+            width: 100%;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #1e3c72;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 25px;
+            font-size: 0.95em;
+        }
+        
+        .video-wrapper {
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+            position: relative;
+        }
+        
+        #videoStream {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.2em;
+        }
+        
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f8ff;
+            border-radius: 8px;
+            border-left: 4px solid #2a5298;
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            background: #4CAF50;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .status-indicator.error {
+            background: #f44336;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            flex: 1;
+            min-width: 140px;
+            padding: 12px 20px;
+            background: #2a5298;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        
+        button:hover {
+            background: #1e3c72;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(42, 82, 152, 0.3);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        .info-box {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 5px;
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #2a5298;
+        }
+        
+        .stat-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 1.5em;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+            
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📹 Cámara en Vivo</h1>
+        <p class="subtitle">Raspberry Pi 3 | Sistema de Streaming en Tiempo Real</p>
+        
+        <!-- Video Stream -->
+        <div class="video-wrapper">
+            <img id="videoStream" src="{{ url_for('video_feed') }}" alt="Video Stream">
+            <div class="loading-overlay" id="loadingOverlay">
+                Cargando stream...
+            </div>
+        </div>
+        
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <span id="statusText">Conectando...</span>
+        </div>
+        
+        <!-- Estadísticas -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="fpsValue">--</div>
+                <div class="stat-label">FPS Estimado</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="uptimeValue">00:00</div>
+                <div class="stat-label">Tiempo Activo</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="frameValue">0</div>
+                <div class="stat-label">Frames Totales</div>
+            </div>
+        </div>
+        
+        <!-- Controles -->
+        <div class="controls">
+            <button onclick="refreshStream()">🔄 Refrescar</button>
+            <button onclick="toggleFullscreen()">⛶ Pantalla Completa</button>
+            <button onclick="viewStats()">📊 Estadísticas</button>
+        </div>
+        
+        <!-- Información -->
+        <div class="info-box">
+            <strong>ℹ️ Información:</strong><br>
+            • El stream incluye marca de tiempo en tiempo real<br>
+            • Si experimentas retrasos, presiona "Refrescar"<br>
+            • Usa "Pantalla Completa" para vista inmersiva
+        </div>
+    </div>
+    
+    <script>
+        const videoStream = document.getElementById('videoStream');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        const fpsValue = document.getElementById('fpsValue');
+        const uptimeValue = document.getElementById('uptimeValue');
+        const frameValue = document.getElementById('frameValue');
+        
+        let startTime = Date.now();
+        let frameCount = 0;
+        let lastFrameTime = Date.now();
+        
+        // Detectar cuando se carga el stream
+        videoStream.onload = function() {
+            loadingOverlay.style.display = 'none';
+            statusIndicator.classList.remove('error');
+            statusText.textContent = 'Transmitiendo en vivo';
+            frameCount++;
+            
+            // Calcular FPS
+            const now = Date.now();
+            const timeDiff = (now - lastFrameTime) / 1000;
+            if (timeDiff > 0) {
+                const fps = Math.round(1 / timeDiff);
+                fpsValue.textContent = fps;
+            }
+            lastFrameTime = now;
+        };
+        
+        // Detectar errores
+        videoStream.onerror = function() {
+            loadingOverlay.style.display = 'flex';
+            loadingOverlay.textContent = 'Error al cargar el stream';
+            statusIndicator.classList.add('error');
+            statusText.textContent = 'Error de conexión';
+            
+            // Reintentar después de 3 segundos
+            setTimeout(refreshStream, 3000);
+        };
+        
+        // Refrescar el stream
+        function refreshStream() {
+            const timestamp = new Date().getTime();
+            videoStream.src = "{{ url_for('video_feed') }}?t=" + timestamp;
+            loadingOverlay.style.display = 'flex';
+            loadingOverlay.textContent = 'Cargando stream...';
+        }
+        
+        // Pantalla completa
+        function toggleFullscreen() {
+            const wrapper = document.querySelector('.video-wrapper');
+            
+            if (!document.fullscreenElement) {
+                wrapper.requestFullscreen().catch(err => {
+                    alert('No se pudo activar pantalla completa: ' + err.message);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        
+        // Ver estadísticas detalladas
+        function viewStats() {
+            window.open('/stats', '_blank');
+        }
+        
+        // Actualizar estadísticas
+        function updateStats() {
+            // Uptime
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            uptimeValue.textContent = 
+                String(minutes).padStart(2, '0') + ':' + 
+                String(seconds).padStart(2, '0');
+            
+            // Obtener estado del servidor
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.total_frames) {
+                        frameValue.textContent = data.total_frames;
+                    }
+                })
+                .catch(err => console.log('Error obteniendo status:', err));
+        }
+        
+        // Actualizar estadísticas cada segundo
+        setInterval(updateStats, 1000);
+        
+        // Prevenir clic derecho en el video
+        videoStream.oncontextmenu = function(e) {
+            e.preventDefault();
+            return false;
+        };
+    </script>
+</body>
+</html>
