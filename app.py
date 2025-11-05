@@ -12,6 +12,8 @@ import os
 import signal
 import sys
 import numpy as np
+import urllib.request
+import socket
 
 app = Flask(__name__)
 
@@ -24,18 +26,91 @@ frame_count = 0
 is_capturing = False
 fps_actual = 0
 face_detected = False
+camera_device_id = 0  # ID de la cámara a usar
+
+def get_ip_address():
+    """Obtiene la dirección IP local"""
+    try:
+        # Crear un socket para obtener la IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "localhost"
+
+def find_available_cameras():
+    """Busca cámaras disponibles en el sistema"""
+    available_cameras = []
+
+    # Probar los primeros 10 dispositivos de video
+    for i in range(10):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            available_cameras.append(i)
+            cap.release()
+
+    return available_cameras
+
+def detect_platform():
+    """Detecta la plataforma (Raspberry Pi o PC)"""
+    try:
+        with open('/proc/cpuinfo', 'r') as f:
+            cpuinfo = f.read()
+            if 'Raspberry Pi' in cpuinfo or 'BCM' in cpuinfo:
+                return 'raspberry'
+    except:
+        pass
+
+    return 'pc'
+
+def download_haarcascade():
+    """Descarga el archivo haarcascade si no existe"""
+    local_path = 'haarcascade_frontalface_default.xml'
+
+    if os.path.exists(local_path):
+        print(f"[OK] Clasificador encontrado: {local_path}")
+        return local_path
+
+    url = 'https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml'
+
+    try:
+        print(f"[INFO] Descargando clasificador desde GitHub...")
+        urllib.request.urlretrieve(url, local_path)
+        print(f"[OK] Clasificador descargado: {local_path}")
+        return local_path
+    except Exception as e:
+        print(f"[ERROR] No se pudo descargar el clasificador: {e}")
+        return None
 
 # Cargar clasificador de rostros (Haar Cascade - rápido)
 # Intentar cargar desde cv2.data, si no existe, usar ruta local
+cascade_path = None
 try:
     cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-except AttributeError:
-    # Buscar en rutas comunes de OpenCV
-    cascade_path = '/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml'
     if not os.path.exists(cascade_path):
-        cascade_path = 'haarcascade_frontalface_default.xml'
+        raise FileNotFoundError
+    print(f"[OK] Usando clasificador de OpenCV: {cascade_path}")
+except (AttributeError, FileNotFoundError):
+    # Buscar en rutas comunes de OpenCV
+    common_paths = [
+        '/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml',
+        '/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml',
+        'haarcascade_frontalface_default.xml'
+    ]
 
-face_cascade = cv2.CascadeClassifier(cascade_path)
+    for path in common_paths:
+        if os.path.exists(path):
+            cascade_path = path
+            print(f"[OK] Clasificador encontrado: {path}")
+            break
+
+    # Si no se encuentra, descargar automáticamente
+    if cascade_path is None or not os.path.exists(cascade_path):
+        cascade_path = download_haarcascade()
+
+face_cascade = cv2.CascadeClassifier(cascade_path) if cascade_path else None
 
 class CameraStream:
     """Clase para manejar la cámara USB optimizada"""
@@ -43,7 +118,7 @@ class CameraStream:
     def __init__(self, device_id=0):
         print(f"[INFO] Configurando cámara /dev/video{device_id}...")
 
-        # Intentar abrir cámara con diferentes backends
+        # Priorizar V4L2 en Linux para mejor rendimiento
         backends = [
             (cv2.CAP_V4L2, "V4L2"),
             (cv2.CAP_ANY, "ANY"),
@@ -51,6 +126,7 @@ class CameraStream:
         ]
 
         self.camera = None
+        self.backend_name = None
         for backend, name in backends:
             print(f"[INFO] Probando backend: {name}")
             if backend is None:
@@ -60,6 +136,7 @@ class CameraStream:
 
             if self.camera.isOpened():
                 print(f"[OK] Cámara abierta con backend: {name}")
+                self.backend_name = name
                 break
             else:
                 print(f"[FAIL] Backend {name} no funcionó")
@@ -70,33 +147,59 @@ class CameraStream:
         if not self.camera or not self.camera.isOpened():
             raise Exception(f"No se pudo abrir /dev/video{device_id} con ningún backend")
 
-        # CONFIGURACIÓN CRÍTICA PARA 30 FPS
-        # 1. Resolución BAJA (crítico para Raspberry Pi 3)
-        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320)   # Bajado a 320
-        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)  # Bajado a 240
+        # CONFIGURACIÓN CRÍTICA PARA 30 FPS Y BAJA LATENCIA
 
-        # 2. FPS alto
-        self.camera.set(cv2.CAP_PROP_FPS, 30)
-
-        # 3. Formato MJPEG (más eficiente)
-        self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
-
-        # 4. Buffer MÍNIMO (crítico para baja latencia)
+        # 1. Buffer MÍNIMO primero (antes de todo)
         self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        # Descartar frames iniciales
-        for _ in range(3):
+        # 2. Resolución BAJA (crítico para Raspberry Pi 3)
+        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+
+        # 3. FPS alto
+        self.camera.set(cv2.CAP_PROP_FPS, 30)
+
+        # 4. Formato MJPEG (más eficiente para USB)
+        self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+
+        # 5. Desactivar autoexposición para FPS estables (si es posible)
+        try:
+            self.camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)  # Manual mode
+        except:
+            pass
+
+        # 6. Desactivar autofocus si es posible
+        try:
+            self.camera.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+        except:
+            pass
+
+        # Descartar frames iniciales del buffer
+        print("[INFO] Limpiando buffer inicial...")
+        for _ in range(5):
             self.camera.read()
 
         # Verificar configuración real
         w = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = int(self.camera.get(cv2.CAP_PROP_FPS))
+        buffer_size = int(self.camera.get(cv2.CAP_PROP_BUFFERSIZE))
 
-        print(f"[OK] Cámara configurada: {w}x{h} @ {fps} FPS")
+        print(f"[OK] Cámara configurada: {w}x{h} @ {fps} FPS (buffer: {buffer_size})")
 
     def read(self):
-        return self.camera.read()
+        """Lee frame y descarta buffer viejo para baja latencia"""
+        # Leer y descartar frames viejos del buffer (reduce latencia)
+        ret, frame = self.camera.read()
+
+        # Opcional: leer múltiples veces para obtener el frame más reciente
+        # Esto ayuda si el buffer de la cámara acumula frames viejos
+        # for _ in range(1):
+        #     ret_new, frame_new = self.camera.read()
+        #     if ret_new:
+        #         ret, frame = ret_new, frame_new
+
+        return ret, frame
 
     def release(self):
         if self.camera is not None:
@@ -125,13 +228,13 @@ def capture_frames():
     """
     Captura frames a máxima velocidad con detección facial
     """
-    global camera, output_frame, frame_count, is_capturing, fps_actual, face_detected
+    global camera, output_frame, frame_count, is_capturing, fps_actual, face_detected, camera_device_id
 
     print("[INFO] Iniciando captura optimizada para 30 FPS...")
 
     try:
         with camera_lock:
-            camera = CameraStream(device_id=0)
+            camera = CameraStream(device_id=camera_device_id)
 
         is_capturing = True
 
@@ -142,14 +245,24 @@ def capture_frames():
         # Contador para detección (no detectar en cada frame)
         detection_counter = 0
 
+        # Variables para diagnóstico de delay
+        last_process_time = 0
+
         while is_capturing:
             loop_start = time.time()
 
-            # Leer frame
+            # OPTIMIZACIÓN CLAVE: Descartar frames viejos del buffer
+            # Leer múltiples frames para obtener el más reciente
             ret, frame = camera.read()
-
             if not ret or frame is None:
                 continue
+
+            # Leer un frame adicional si hay tiempo (reduce latencia del buffer)
+            # Solo si el procesamiento anterior fue rápido
+            if last_process_time < 0.025:  # Si tardó menos de 25ms
+                ret_new, frame_new = camera.read()
+                if ret_new and frame_new is not None:
+                    frame = frame_new
 
             # DETECCIÓN FACIAL CADA 3 FRAMES (para mantener FPS alto)
             faces = []
@@ -191,12 +304,16 @@ def capture_frames():
                     frame_count += 1
                     fps_counter += 1
 
+            # Calcular tiempo de procesamiento del loop
+            last_process_time = time.time() - loop_start
+
             # Calcular FPS real cada segundo
             current_time = time.time()
             elapsed = current_time - fps_start_time
             if elapsed >= 1.0:
                 fps_actual = fps_counter / elapsed
-                print(f"[FPS] {fps_actual:.1f} fps | Rostros: {len(faces)}")
+                avg_process_ms = (last_process_time * 1000)
+                print(f"[FPS] {fps_actual:.1f} fps | Rostros: {len(faces)} | Proc: {avg_process_ms:.1f}ms")
                 fps_counter = 0
                 fps_start_time = current_time
 
@@ -290,41 +407,45 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 def main():
-    global is_capturing
+    global is_capturing, camera_device_id
 
     signal.signal(signal.SIGINT, signal_handler)
 
+    # Detectar plataforma
+    platform = detect_platform()
+    platform_name = "Raspberry Pi 3" if platform == 'raspberry' else "PC/Laptop (Fedora)"
+
     print("\n" + "="*70)
     print("  SISTEMA DE DETECCIÓN FACIAL - 30 FPS")
-    print("  Raspberry Pi 3")
+    print(f"  Plataforma: {platform_name}")
     print("="*70)
 
-    if not os.path.exists('/dev/video0'):
-        print("\n[ERROR] /dev/video0 no encontrado")
+    # Buscar cámaras disponibles
+    print("\n[INFO] Buscando cámaras disponibles...")
+    available_cameras = find_available_cameras()
+
+    if not available_cameras:
+        print("\n[ERROR] No se encontraron cámaras")
+        print("\nEn Fedora, verifica:")
+        print("  1. La cámara está conectada")
+        print("  2. Tienes permisos: sudo usermod -aG video $USER")
+        print("  3. Lista dispositivos: ls -l /dev/video*")
+        print("\nEn Raspberry Pi, verifica:")
+        print("  1. La cámara USB está conectada")
+        print("  2. Ejecuta: ls -l /dev/video*")
         return
 
-    # Verificar que el clasificador existe
-    cascade_paths = [
-        '/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml',
-        '/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml',
-        'haarcascade_frontalface_default.xml'
-    ]
+    print(f"[OK] Cámaras encontradas: {available_cameras}")
+    camera_device_id = available_cameras[0]
+    print(f"[INFO] Usando cámara /dev/video{camera_device_id}")
 
-    cascade_found = False
-    for path in cascade_paths:
-        if os.path.exists(path):
-            cascade_found = True
-            print(f"[OK] Clasificador encontrado en: {path}")
-            break
-
-    if not cascade_found:
-        print("\n[ERROR] No se encontró el clasificador de rostros")
-        print("Descárgalo con:")
-        print("wget https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml")
+    # Verificar que el clasificador fue cargado correctamente
+    if face_cascade is None or face_cascade.empty():
+        print("\n[ERROR] No se pudo cargar el clasificador de rostros")
+        print("El sistema intentó descargarlo automáticamente pero falló")
         return
 
-    print("\n[OK] Clasificador de rostros cargado")
-    print("[OK] /dev/video0 detectado")
+    print("[OK] Clasificador de rostros cargado correctamente")
 
     # Iniciar captura
     capture_thread = threading.Thread(target=capture_frames, daemon=True)
@@ -336,14 +457,18 @@ def main():
         print("\n[ERROR] No se pudo iniciar")
         return
 
+    # Obtener IP dinámica
+    ip_address = get_ip_address()
+
     print("\n" + "="*70)
     print("  ✅ SISTEMA ACTIVO")
     print("="*70)
-    print(f"\n  📹 URL: http://192.168.43.159:5000")
-    print(f"  📊 Stats: http://192.168.43.159:5000/stats")
+    print(f"\n  📹 URL: http://{ip_address}:5000")
+    print(f"  📊 Stats: http://{ip_address}:5000/stats")
     print(f"\n  🎯 Objetivo: 30 FPS")
     print(f"  👤 Detección facial: ACTIVA")
     print(f"  📐 Resolución: 320x240 (optimizado para RPi3)")
+    print(f"  🌐 IP Local: {ip_address}")
     print("\n  Presiona CTRL+C para salir")
     print("="*70 + "\n")
 
