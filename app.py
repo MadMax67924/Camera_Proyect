@@ -27,6 +27,7 @@ is_capturing = False
 fps_actual = 0
 face_detected = False
 camera_device_id = 0  # ID de la cámara a usar
+detection_enabled = False  # Toggle para detección facial (por defecto desactivado para max FPS)
 
 def get_ip_address():
     """Obtiene la dirección IP local"""
@@ -152,15 +153,15 @@ class CameraStream:
         # 1. Buffer MÍNIMO primero (antes de todo)
         self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        # 2. Resolución BAJA (crítico para Raspberry Pi 3)
+        # 2. Primero establecer formato MJPEG
+        self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+
+        # 3. Resolución - la cámara elegirá la mejor disponible
         self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
         self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 
-        # 3. FPS alto
+        # 4. FPS alto
         self.camera.set(cv2.CAP_PROP_FPS, 30)
-
-        # 4. Formato MJPEG (más eficiente para USB)
-        self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
 
         # 5. Desactivar autoexposición para FPS estables (si es posible)
         try:
@@ -226,11 +227,12 @@ def detect_faces(frame):
 
 def capture_frames():
     """
-    Captura frames a máxima velocidad con detección facial
+    Captura frames a máxima velocidad (60+ FPS sin detección, 25-30 FPS con detección)
     """
-    global camera, output_frame, frame_count, is_capturing, fps_actual, face_detected, camera_device_id
+    global camera, output_frame, frame_count, is_capturing, fps_actual, face_detected, camera_device_id, detection_enabled
 
-    print("[INFO] Iniciando captura optimizada para 30 FPS...")
+    mode = "DETECCIÓN ACTIVA" if detection_enabled else "MODO RÁPIDO (60+ FPS)"
+    print(f"[INFO] Iniciando captura - {mode}")
 
     try:
         with camera_lock:
@@ -251,51 +253,48 @@ def capture_frames():
         while is_capturing:
             loop_start = time.time()
 
-            # OPTIMIZACIÓN CLAVE: Descartar frames viejos del buffer
-            # Leer múltiples frames para obtener el más reciente
+            # Leer frame - OPTIMIZADO
+            # No leer múltiples frames si la cámara ya da buenos FPS
             ret, frame = camera.read()
             if not ret or frame is None:
                 continue
 
-            # Leer un frame adicional si hay tiempo (reduce latencia del buffer)
-            # Solo si el procesamiento anterior fue rápido
-            if last_process_time < 0.025:  # Si tardó menos de 25ms
+            # Reducir frames solo si la cámara es lenta (FPS < 20)
+            # y el procesamiento es rápido
+            if fps_actual < 20 and last_process_time < 0.030:
+                # Leer UN frame adicional para reducir latencia
                 ret_new, frame_new = camera.read()
                 if ret_new and frame_new is not None:
                     frame = frame_new
 
-            # DETECCIÓN FACIAL CADA 3 FRAMES (para mantener FPS alto)
+            # DETECCIÓN FACIAL (solo si está habilitada)
             faces = []
-            if detection_counter % 3 == 0:
-                faces = detect_faces(frame)
-                face_detected = len(faces) > 0
-            detection_counter += 1
+            if detection_enabled:
+                # Detectar cada 3 frames para mantener FPS alto
+                if detection_counter % 3 == 0:
+                    faces = detect_faces(frame)
+                    face_detected = len(faces) > 0
+                detection_counter += 1
 
-            # Dibujar rectángulos en rostros detectados
-            for (x, y, w, h) in faces:
-                # Rectángulo verde alrededor del rostro
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                # Dibujar rectángulos en rostros detectados
+                for (x, y, w, h) in faces:
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                    cv2.putText(frame, "ROSTRO", (x, y-10),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-                # Texto "ROSTRO DETECTADO"
-                cv2.putText(frame, "ROSTRO", (x, y-10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            # Información en pantalla (mínima para no afectar FPS)
+            cv2.putText(frame, f"FPS: {fps_actual:.0f}", (5, 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-            # Timestamp simple (solo hora)
-            timestamp = time.strftime("%H:%M:%S")
-            cv2.putText(frame, timestamp, (5, 20),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            # Indicador de modo
+            mode_text = "DETECCION: ON" if detection_enabled else "DETECCION: OFF"
+            color = (0, 255, 0) if detection_enabled else (255, 255, 0)
+            cv2.putText(frame, mode_text, (5, 40),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-            # Mostrar FPS en el frame
-            cv2.putText(frame, f"FPS: {fps_actual:.1f}", (5, 40),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-
-            # Indicador de detección
-            if face_detected:
-                cv2.putText(frame, "CARA DETECTADA", (5, 60),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-            # Codificar a JPEG con CALIDAD BAJA (velocidad > calidad)
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 50]
+            # Codificar a JPEG con calidad muy baja para máxima velocidad
+            encode_quality = 30 if not detection_enabled else 50
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), encode_quality]
             ret, buffer = cv2.imencode('.jpg', frame, encode_param)
 
             if ret:
@@ -366,7 +365,30 @@ def status():
         'is_capturing': is_capturing,
         'fps': round(fps_actual, 1),
         'face_detected': face_detected,
-        'total_frames': frame_count
+        'total_frames': frame_count,
+        'detection_enabled': detection_enabled
+    })
+
+@app.route('/toggle_detection', methods=['POST'])
+def toggle_detection():
+    global detection_enabled
+    detection_enabled = not detection_enabled
+    mode = "ACTIVADA" if detection_enabled else "DESACTIVADA"
+    print(f"[INFO] Detección facial {mode}")
+    return jsonify({
+        'detection_enabled': detection_enabled,
+        'message': f'Detección facial {mode}'
+    })
+
+@app.route('/set_detection/<int:value>', methods=['POST'])
+def set_detection(value):
+    global detection_enabled
+    detection_enabled = bool(value)
+    mode = "ACTIVADA" if detection_enabled else "DESACTIVADA"
+    print(f"[INFO] Detección facial {mode}")
+    return jsonify({
+        'detection_enabled': detection_enabled,
+        'message': f'Detección facial {mode}'
     })
 
 @app.route('/stats')

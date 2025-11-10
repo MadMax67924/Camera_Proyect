@@ -4,14 +4,17 @@ Sistema de streaming de video con detección facial en tiempo real, optimizado p
 
 ## Características
 
-- Streaming de video a 30 FPS
-- Detección facial en tiempo real usando Haar Cascade
+- **Modo rápido: 60+ FPS sin detección facial**
+- **Modo con detección: 25-30 FPS con detección facial**
+- **Toggle en tiempo real** para activar/desactivar detección
+- Streaming de video optimizado
+- Detección facial usando Haar Cascade
 - Descarga automática del clasificador (sin necesidad de wget manual)
 - Detección automática de IP local
-- **Detección automática de cámaras disponibles**
-- **Compatible con Raspberry Pi y Fedora/PC Linux**
+- Detección automática de cámaras disponibles
+- Compatible con Raspberry Pi y Fedora/PC Linux
 - Optimizado para WiFi 2.4 GHz
-- Interfaz web simple y eficiente
+- Interfaz web moderna con controles
 
 ## Requisitos
 
@@ -153,6 +156,51 @@ Para forzar 2.4 GHz en redes duales, agrega a tu configuración WiFi:
 ```conf
 freq_list=2412 2437 2462
 ```
+
+## Controles de la interfaz
+
+La interfaz web incluye:
+
+- **Botón "Activar/Desactivar Detección"**: Alterna entre modo rápido (60+ FPS) y modo con detección (25-30 FPS)
+- **FPS en tiempo real**: Muestra los FPS actuales
+- **Refrescar**: Reinicia el stream
+- **Pantalla completa**: Vista inmersiva
+- **Estadísticas**: Información detallada del sistema
+
+### Usar el toggle de detección
+
+1. Por defecto, la detección está **desactivada** para máximo FPS (60+)
+2. Haz clic en "👤 Activar Detección" para activar la detección facial
+3. El botón cambia a "🚫 Desactivar Detección" (rojo)
+4. Vuelve a hacer clic para desactivar y recuperar 60+ FPS
+
+## Problema de 3 FPS
+
+Si obtienes solo **3 FPS**, el problema más común es que tu cámara está usando formato **YUYV** en lugar de **MJPEG**.
+
+### Solución rápida
+
+```bash
+# Configurar cámara automáticamente
+bash setup_camera.sh
+```
+
+Este script interactivo te permitirá:
+- Ver la configuración actual de tu cámara
+- Seleccionar el formato óptimo (MJPEG recomendado)
+- Ver FPS esperado según tu configuración
+
+### Solución manual
+
+```bash
+# Forzar MJPEG a resolución baja (60+ FPS)
+v4l2-ctl -d /dev/video0 --set-fmt-video=width=320,height=240,pixelformat=MJPG
+
+# Verificar
+v4l2-ctl -d /dev/video0 --get-fmt-video
+```
+
+**Lee [SOLUCION_3FPS.md](SOLUCION_3FPS.md) para más detalles.**
 
 ## Diagnóstico de rendimiento
 

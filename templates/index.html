@@ -224,6 +224,7 @@
         
         <!-- Controles -->
         <div class="controls">
+            <button id="toggleDetectionBtn" onclick="toggleDetection()">👤 Activar Detección</button>
             <button onclick="refreshStream()">🔄 Refrescar</button>
             <button onclick="toggleFullscreen()">⛶ Pantalla Completa</button>
             <button onclick="viewStats()">📊 Estadísticas</button>
@@ -232,7 +233,8 @@
         <!-- Información -->
         <div class="info-box">
             <strong>ℹ️ Información:</strong><br>
-            • El stream incluye marca de tiempo en tiempo real<br>
+            • <span id="detectionInfo">Detección facial DESACTIVADA - Máximo FPS (60+)</span><br>
+            • El stream incluye información en tiempo real<br>
             • Si experimentas retrasos, presiona "Refrescar"<br>
             • Usa "Pantalla Completa" para vista inmersiva
         </div>
@@ -304,7 +306,37 @@
         function viewStats() {
             window.open('/stats', '_blank');
         }
-        
+
+        // Toggle detección facial
+        function toggleDetection() {
+            fetch('/toggle_detection', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                const btn = document.getElementById('toggleDetectionBtn');
+                const info = document.getElementById('detectionInfo');
+
+                if (data.detection_enabled) {
+                    btn.textContent = '🚫 Desactivar Detección';
+                    btn.style.background = '#f44336';
+                    info.textContent = 'Detección facial ACTIVADA - 25-30 FPS';
+                    statusText.textContent = 'Detección Facial Activa';
+                } else {
+                    btn.textContent = '👤 Activar Detección';
+                    btn.style.background = '#2a5298';
+                    info.textContent = 'Detección facial DESACTIVADA - Máximo FPS (60+)';
+                    statusText.textContent = 'Modo Rápido - Sin Detección';
+                }
+
+                console.log(data.message);
+            })
+            .catch(err => {
+                console.error('Error toggling detection:', err);
+                alert('Error al cambiar modo de detección');
+            });
+        }
+
         // Actualizar estadísticas
         function updateStats() {
             // Uptime
@@ -321,6 +353,24 @@
                 .then(data => {
                     if (data.total_frames) {
                         frameValue.textContent = data.total_frames;
+                    }
+                    if (data.fps) {
+                        fpsValue.textContent = data.fps;
+                    }
+
+                    // Actualizar estado del botón de detección
+                    const btn = document.getElementById('toggleDetectionBtn');
+                    const info = document.getElementById('detectionInfo');
+                    if (data.detection_enabled !== undefined) {
+                        if (data.detection_enabled) {
+                            btn.textContent = '🚫 Desactivar Detección';
+                            btn.style.background = '#f44336';
+                            info.textContent = 'Detección facial ACTIVADA - 25-30 FPS';
+                        } else {
+                            btn.textContent = '👤 Activar Detección';
+                            btn.style.background = '#2a5298';
+                            info.textContent = 'Detección facial DESACTIVADA - Máximo FPS (60+)';
+                        }
                     }
                 })
                 .catch(err => console.log('Error obteniendo status:', err));
