@@ -1,20 +1,30 @@
-# Sistema de Detección Facial con Raspberry Pi 3 y Fedora
+# 🎥 Sistema de Reconocimiento Facial - Raspberry Pi 3 y Fedora
 
-Sistema de streaming de video con detección facial en tiempo real, optimizado para Raspberry Pi 3 y compatible con Fedora/PC Linux.
+Sistema completo de streaming de video con **detección y reconocimiento facial** en tiempo real, optimizado para Raspberry Pi 3 y compatible con Fedora/PC Linux.
 
-## Características
+## 🆕 Características Nuevas (ACTUALIZACIÓN)
 
-- **Modo rápido: 60+ FPS sin detección facial**
-- **Modo con detección: 25-30 FPS con detección facial**
-- **Toggle en tiempo real** para activar/desactivar detección
-- Streaming de video optimizado
+- ✨ **Reconocimiento facial real** - Identifica personas específicas
+- ✨ **Selección de cámara** desde interfaz web
+- ✨ **Scripts de entrenamiento** incluidos
+- ✨ **Interfaz web mejorada** con controles avanzados
+- ✨ **Documentación completa** paso a paso
+
+## Características Principales
+
+- **Modo rápido: 60+ FPS** sin procesamiento
+- **Detección Haar: 25-30 FPS** detecta rostros
+- **Reconocimiento: 15-20 FPS** identifica personas
+- **Toggle independiente** para cada modo
+- Streaming de video optimizado (MJPEG)
 - Detección facial usando Haar Cascade
-- Descarga automática del clasificador (sin necesidad de wget manual)
+- **Reconocimiento facial** usando face_recognition (dlib)
+- Descarga automática del clasificador
 - Detección automática de IP local
-- Detección automática de cámaras disponibles
+- **Selección dinámica de cámara**
 - Compatible con Raspberry Pi y Fedora/PC Linux
 - Optimizado para WiFi 2.4 GHz
-- Interfaz web moderna con controles
+- Interfaz web moderna y responsive
 
 ## Requisitos
 
@@ -32,11 +42,30 @@ Sistema de streaming de video con detección facial en tiempo real, optimizado p
 - Python 3.7+
 - Conexión WiFi o Ethernet
 
-## Instalación
+## 🚀 Inicio Rápido
+
+### Paso 0: Configuración Inicial (Primera vez)
+
+```bash
+# Configurar permisos y estructura
+python3 setup.py
+
+# Instalar dependencias
+pip3 install -r requirements.txt
+```
+
+**⚠️ IMPORTANTE**: La instalación puede tardar:
+- **Fedora/PC**: 5-10 minutos
+- **Raspberry Pi**: 30-60 minutos (¡es normal! No canceles)
+
+### Guías Rápidas
+
+- 📖 **[INICIO_RAPIDO.md](INICIO_RAPIDO.md)** - Guía de 5 minutos
+- 📚 **[RECONOCIMIENTO.md](RECONOCIMIENTO.md)** - Documentación completa
+
+## Instalación Detallada
 
 ### Método 1: Instalación automática (Recomendado)
-
-Usa el script de instalación que detecta automáticamente tu sistema operativo:
 
 ```bash
 bash install.sh

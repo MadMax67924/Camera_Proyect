@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Dataset y Modelos (datos sensibles)
+dataset/raw/*/
+dataset/processed/*/
+models/*.pkl
+models/*.h5
+models/*.pth
+
+# Mantener estructura pero ignorar contenido
+!dataset/raw/README.md
+!dataset/raw/.gitkeep
+!dataset/processed/.gitkeep
+!models/README.md
+!models/.gitkeep
+
+# Logs
+logs/*.log
+logs/*.txt
+*.log
+
+# Archivos temporales de OpenCV
+*.xml
+!haarcascade_frontalface_default.xml
+
+# Backups
+*.bak
+*.backup
+*~
+
+# Sistema
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Archivos de configuración local
+config.local.py
+.env
+.env.local
+
+# Archivos de prueba
+test_*.py
+tmp/
+temp/

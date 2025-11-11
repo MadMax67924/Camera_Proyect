@@ -225,15 +225,30 @@
         <!-- Controles -->
         <div class="controls">
             <button id="toggleDetectionBtn" onclick="toggleDetection()">👤 Activar Detección</button>
+            <button id="toggleRecognitionBtn" onclick="toggleRecognition()">🧠 Activar Reconocimiento</button>
+            <button onclick="showCameraSelector()">📷 Cambiar Cámara</button>
             <button onclick="refreshStream()">🔄 Refrescar</button>
             <button onclick="toggleFullscreen()">⛶ Pantalla Completa</button>
             <button onclick="viewStats()">📊 Estadísticas</button>
         </div>
-        
+
+        <!-- Selector de Cámara (oculto por defecto) -->
+        <div id="cameraSelector" style="display: none; margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+            <strong>📷 Seleccionar Cámara:</strong>
+            <div id="cameraList" style="margin-top: 10px;"></div>
+        </div>
+
+        <!-- Rostros Reconocidos -->
+        <div id="recognizedFaces" style="display: none; margin-top: 20px; padding: 15px; background: #e8f5e9; border-radius: 8px; border-left: 4px solid #4CAF50;">
+            <strong>✅ Personas Reconocidas:</strong>
+            <div id="recognizedList" style="margin-top: 10px; font-size: 1.1em;"></div>
+        </div>
+
         <!-- Información -->
         <div class="info-box">
             <strong>ℹ️ Información:</strong><br>
             • <span id="detectionInfo">Detección facial DESACTIVADA - Máximo FPS (60+)</span><br>
+            • <span id="recognitionInfo">Reconocimiento facial NO DISPONIBLE</span><br>
             • El stream incluye información en tiempo real<br>
             • Si experimentas retrasos, presiona "Refrescar"<br>
             • Usa "Pantalla Completa" para vista inmersiva
@@ -337,16 +352,106 @@
             });
         }
 
+        // Toggle reconocimiento facial
+        function toggleRecognition() {
+            fetch('/toggle_recognition', {
+                method: 'POST'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw err; });
+                }
+                return response.json();
+            })
+            .then(data => {
+                const btn = document.getElementById('toggleRecognitionBtn');
+                const info = document.getElementById('recognitionInfo');
+
+                if (data.recognition_enabled) {
+                    btn.textContent = '🚫 Desactivar Reconocimiento';
+                    btn.style.background = '#f44336';
+                    info.textContent = 'Reconocimiento facial ACTIVADO - 15-20 FPS';
+                } else {
+                    btn.textContent = '🧠 Activar Reconocimiento';
+                    btn.style.background = '#2a5298';
+                    info.textContent = 'Reconocimiento facial DESACTIVADO';
+                }
+
+                console.log(data.message);
+            })
+            .catch(err => {
+                console.error('Error toggling recognition:', err);
+                alert(err.message || 'Error al cambiar modo de reconocimiento');
+            });
+        }
+
+        // Mostrar selector de cámara
+        function showCameraSelector() {
+            const selector = document.getElementById('cameraSelector');
+            const cameraList = document.getElementById('cameraList');
+
+            fetch('/cameras')
+                .then(response => response.json())
+                .then(data => {
+                    cameraList.innerHTML = '';
+
+                    data.cameras.forEach(camId => {
+                        const btn = document.createElement('button');
+                        btn.textContent = `/dev/video${camId}`;
+                        btn.style.margin = '5px';
+
+                        if (camId === data.current) {
+                            btn.style.background = '#4CAF50';
+                            btn.textContent += ' (Actual)';
+                        }
+
+                        btn.onclick = () => changeCamera(camId);
+                        cameraList.appendChild(btn);
+                    });
+
+                    selector.style.display = selector.style.display === 'none' ? 'block' : 'none';
+                })
+                .catch(err => {
+                    console.error('Error getting cameras:', err);
+                    alert('Error al obtener lista de cámaras');
+                });
+        }
+
+        // Cambiar cámara
+        function changeCamera(cameraId) {
+            if (!confirm(`¿Cambiar a /dev/video${cameraId}?`)) {
+                return;
+            }
+
+            fetch(`/set_camera/${cameraId}`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    setTimeout(refreshStream, 1000);
+                    document.getElementById('cameraSelector').style.display = 'none';
+                } else {
+                    alert(data.message);
+                }
+            })
+            .catch(err => {
+                console.error('Error changing camera:', err);
+                alert('Error al cambiar cámara');
+            });
+        }
+
         // Actualizar estadísticas
         function updateStats() {
             // Uptime
             const elapsed = Math.floor((Date.now() - startTime) / 1000);
             const minutes = Math.floor(elapsed / 60);
             const seconds = elapsed % 60;
-            uptimeValue.textContent = 
-                String(minutes).padStart(2, '0') + ':' + 
+            uptimeValue.textContent =
+                String(minutes).padStart(2, '0') + ':' +
                 String(seconds).padStart(2, '0');
-            
+
             // Obtener estado del servidor
             fetch('/status')
                 .then(response => response.json())
@@ -358,19 +463,57 @@
                         fpsValue.textContent = data.fps;
                     }
 
-                    // Actualizar estado del botón de detección
-                    const btn = document.getElementById('toggleDetectionBtn');
-                    const info = document.getElementById('detectionInfo');
+                    // Actualizar botón de detección
+                    const detBtn = document.getElementById('toggleDetectionBtn');
+                    const detInfo = document.getElementById('detectionInfo');
                     if (data.detection_enabled !== undefined) {
                         if (data.detection_enabled) {
-                            btn.textContent = '🚫 Desactivar Detección';
-                            btn.style.background = '#f44336';
-                            info.textContent = 'Detección facial ACTIVADA - 25-30 FPS';
+                            detBtn.textContent = '🚫 Desactivar Detección';
+                            detBtn.style.background = '#f44336';
+                            detInfo.textContent = 'Detección facial ACTIVADA - 25-30 FPS';
                         } else {
-                            btn.textContent = '👤 Activar Detección';
-                            btn.style.background = '#2a5298';
-                            info.textContent = 'Detección facial DESACTIVADA - Máximo FPS (60+)';
+                            detBtn.textContent = '👤 Activar Detección';
+                            detBtn.style.background = '#2a5298';
+                            detInfo.textContent = 'Detección facial DESACTIVADA - Máximo FPS (60+)';
                         }
+                    }
+
+                    // Actualizar botón de reconocimiento
+                    const recBtn = document.getElementById('toggleRecognitionBtn');
+                    const recInfo = document.getElementById('recognitionInfo');
+
+                    if (!data.recognition_available) {
+                        recBtn.disabled = true;
+                        recBtn.style.background = '#999';
+                        recInfo.textContent = 'Reconocimiento NO DISPONIBLE (instala face_recognition)';
+                    } else if (!data.model_loaded) {
+                        recBtn.disabled = true;
+                        recBtn.style.background = '#999';
+                        recInfo.textContent = 'Sin modelo entrenado (ejecuta train_model.py)';
+                    } else {
+                        recBtn.disabled = false;
+                        if (data.recognition_enabled) {
+                            recBtn.textContent = '🚫 Desactivar Reconocimiento';
+                            recBtn.style.background = '#f44336';
+                            recInfo.textContent = 'Reconocimiento facial ACTIVADO - 15-20 FPS';
+                        } else {
+                            recBtn.textContent = '🧠 Activar Reconocimiento';
+                            recBtn.style.background = '#2a5298';
+                            recInfo.textContent = 'Reconocimiento facial DISPONIBLE';
+                        }
+                    }
+
+                    // Mostrar rostros reconocidos
+                    const recognizedDiv = document.getElementById('recognizedFaces');
+                    const recognizedList = document.getElementById('recognizedList');
+
+                    if (data.recognized_names && data.recognized_names.length > 0) {
+                        recognizedDiv.style.display = 'block';
+                        recognizedList.innerHTML = data.recognized_names.map(name =>
+                            `<span style="display: inline-block; background: #4CAF50; color: white; padding: 5px 15px; margin: 5px; border-radius: 20px;">👤 ${name}</span>`
+                        ).join('');
+                    } else {
+                        recognizedDiv.style.display = 'none';
                     }
                 })
                 .catch(err => console.log('Error obteniendo status:', err));
