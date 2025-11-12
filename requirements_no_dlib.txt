@@ -10,7 +10,8 @@ opencv-python>=4.5.0
 numpy>=1.19.0
 
 # Detección de rostros (Google - MUCHO MÁS RÁPIDO que dlib)
-mediapipe>=0.8.0
+# COMENTADO: No soporta Python 3.13+ aún
+# mediapipe>=0.8.0
 
 # Distancia y similaridad
 scipy>=1.7.0
@@ -19,6 +20,7 @@ scipy>=1.7.0
 setuptools>=65.0.0
 Pillow>=8.0.0
 tqdm>=4.50.0
+scikit-learn>=1.0.0
 
 # OPCIONAL: Si quieres usar modelo OpenFace (mejora precisión)
 # opencv-python-headless>=4.5.0  # Para servidores sin interfaz gráfica

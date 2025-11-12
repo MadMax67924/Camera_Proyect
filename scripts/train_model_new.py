@@ -68,13 +68,13 @@ def extract_face_features(frame: np.ndarray, face_rect: tuple) -> np.ndarray:
     return np.array(features, dtype=np.float32)
 
 
-def train_model(dataset_dir: str = "dataset/processed", 
+def train_model(dataset_dir: str = "dataset/raw", 
                 output_model: str = "models/faces_model_lite.pkl"):
     """
     Entrena el modelo desde el dataset
     
     Estructura esperada:
-    dataset/processed/
+    dataset/raw/
         ├── Persona1/
         │   ├── img1.jpg
         │   └── img2.jpg
@@ -230,7 +230,7 @@ def main():
     """Función principal"""
     
     # Argumentos de línea de comandos
-    dataset = sys.argv[1] if len(sys.argv) > 1 else "dataset/processed"
+    dataset = sys.argv[1] if len(sys.argv) > 1 else "dataset/raw"
     output = sys.argv[2] if len(sys.argv) > 2 else "models/faces_model_lite.pkl"
     
     success = train_model(dataset, output)

@@ -11,9 +11,16 @@ import pickle
 import os
 from typing import List, Tuple, Dict, Optional
 import time
-import mediapipe as mp
 from scipy.spatial.distance import euclidean, cosine
 from pathlib import Path
+
+# Intentar importar MediaPipe, pero no es obligatorio
+try:
+    import mediapipe as mp
+    MEDIAPIPE_AVAILABLE = True
+except ImportError:
+    MEDIAPIPE_AVAILABLE = False
+    print("[WARNING] MediaPipe no disponible, usando solo OpenCV")
 
 
 class FaceRecognizerLite:
@@ -44,11 +51,21 @@ class FaceRecognizerLite:
         self.known_face_names = []
         self.encoding_dim = 135  # Por defecto, se actualizará al cargar modelo
 
-        # Inicializar MediaPipe
-        self.mp_face_detection = mp.solutions.face_detection
-        self.face_detector = self.mp_face_detection.FaceDetection(
-            model_selection=1,  # 1 para corto rango (más rápido)
-            min_detection_confidence=0.5
+        # Inicializar MediaPipe (opcional)
+        if MEDIAPIPE_AVAILABLE:
+            self.mp_face_detection = mp.solutions.face_detection
+            self.face_detector = self.mp_face_detection.FaceDetection(
+                model_selection=1,  # 1 para corto rango (más rápido)
+                min_detection_confidence=0.5
+            )
+        else:
+            self.mp_face_detection = None
+            self.face_detector = None
+            print("[INFO] Usando detección con Haar Cascade (OpenCV)")
+
+        # Cargar Haar Cascade como fallback
+        self.haar_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
 
         # Inicializar extractor de características de OpenCV (DNN)
