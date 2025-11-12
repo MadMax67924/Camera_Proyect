@@ -19,7 +19,8 @@ from sklearn.neighbors import KNeighborsClassifier
 
 def extract_face_features(frame: np.ndarray, face_rect: tuple) -> np.ndarray:
     """
-    Extrae características de un rostro detectado
+    Extrae características de un rostro detectado - VERSIÓN OPTIMIZADA
+    Reduce características de 4132 a ~530 para mejor velocidad
     
     Args:
         frame: Imagen BGR
@@ -40,31 +41,35 @@ def extract_face_features(frame: np.ndarray, face_rect: tuple) -> np.ndarray:
     if face_roi.size == 0:
         return None
     
-    # Redimensionar a tamaño fijo
-    face_resized = cv2.resize(face_roi, (64, 64))
+    # Redimensionar a tamaño más pequeño (32x32 en lugar de 64x64)
+    face_resized = cv2.resize(face_roi, (32, 32))
     
     # Convertir a escala de grises
     face_gray = cv2.cvtColor(face_resized, cv2.COLOR_BGR2GRAY)
     
-    # Extraer características
+    # Extraer características optimizadas
     features = []
     
-    # 1. Píxeles aplanados
-    features.extend(face_gray.flatten().tolist())
+    # 1. Píxeles aplanados (32*32 = 1024, reducido a 512 con redimensión)
+    face_small = cv2.resize(face_gray, (16, 16))
+    features.extend(face_small.flatten().tolist())
     
-    # 2. Estadísticas
+    # 2. Estadísticas básicas (4)
     features.append(float(face_gray.mean()))
     features.append(float(face_gray.std()))
+    features.append(float(np.min(face_gray)))
+    features.append(float(np.max(face_gray)))
     
-    # 3. Histograma
-    hist = cv2.calcHist([face_gray], [0], None, [32], [0, 256])
+    # 3. Histograma reducido (16 bins en lugar de 32)
+    hist = cv2.calcHist([face_gray], [0], None, [16], [0, 256])
     features.extend(hist.flatten().tolist())
     
-    # 4. Bordes
+    # 4. Características de bordes (HOG simplificado)
     edges = cv2.Canny(face_gray, 100, 200)
     features.append(float(edges.mean()))
-    features.append(float(edges.std()))
+    features.append(float(edges.sum() / (32 * 32)))
     
+    # Total: 256 + 4 + 16 + 2 = 278 características (mucho más rápido que 4132)
     return np.array(features, dtype=np.float32)
 
 
@@ -196,8 +201,8 @@ def train_model(dataset_dir: str = "dataset/raw",
     X_train_scaled = scaler.fit_transform(X_train)
     
     # Entrenar clasificador KNN
-    print("[*] Entrenando clasificador KNN (k=5)...")
-    knn = KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
+    print("[*] Entrenando clasificador KNN (k=7)...")
+    knn = KNeighborsClassifier(n_neighbors=7, n_jobs=-1)
     knn.fit(X_train_scaled, y_train)
     
     # Guardar modelo

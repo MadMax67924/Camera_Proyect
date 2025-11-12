@@ -171,15 +171,16 @@ class FaceRecognizerLite:
 
     def extract_features(self, face_image: np.ndarray) -> np.ndarray:
         """
-        Extrae características del rostro
-        IMPORTANTE: Debe coincidir exactamente con extract_face_features en train_model_new.py
+        Extrae características del rostro - VERSIÓN OPTIMIZADA
+        Debe coincidir EXACTAMENTE con extract_face_features en train_model_new.py
+        278 características = más rápido que 4132 pero con buena precisión
         """
         if face_image is None or face_image.size == 0:
-            return np.zeros(4132)
+            return np.zeros(278)
 
         try:
-            # Redimensionar a tamaño fijo (64x64)
-            face_resized = cv2.resize(face_image, (64, 64))
+            # Redimensionar a 32x32 (más pequeño = más rápido)
+            face_resized = cv2.resize(face_image, (32, 32))
 
             # Convertir a escala de grises
             if len(face_resized.shape) == 3:
@@ -187,31 +188,34 @@ class FaceRecognizerLite:
             else:
                 face_gray = face_resized
 
-            # Extraer características (IGUAL A train_model_new.py)
+            # Extraer características optimizadas (igual a train_model_new.py)
             features = []
 
-            # 1. Píxeles aplanados (64*64 = 4096)
-            features.extend(face_gray.flatten().tolist())
+            # 1. Píxeles aplanados pequeños (16x16 = 256)
+            face_small = cv2.resize(face_gray, (16, 16))
+            features.extend(face_small.flatten().tolist())
 
-            # 2. Estadísticas (2)
+            # 2. Estadísticas básicas (4)
             features.append(float(face_gray.mean()))
             features.append(float(face_gray.std()))
+            features.append(float(np.min(face_gray)))
+            features.append(float(np.max(face_gray)))
 
-            # 3. Histograma (32)
-            hist = cv2.calcHist([face_gray], [0], None, [32], [0, 256])
+            # 3. Histograma reducido (16)
+            hist = cv2.calcHist([face_gray], [0], None, [16], [0, 256])
             features.extend(hist.flatten().tolist())
 
-            # 4. Bordes (2)
+            # 4. Características de bordes (2)
             edges = cv2.Canny(face_gray, 100, 200)
             features.append(float(edges.mean()))
-            features.append(float(edges.std()))
+            features.append(float(edges.sum() / (32 * 32)))
 
-            # Total: 4096 + 2 + 32 + 2 = 4132 características
+            # Total: 256 + 4 + 16 + 2 = 278 características
             return np.array(features, dtype=np.float32)
 
         except Exception as e:
             print(f"[WARNING] Error extrayendo características: {e}")
-            return np.zeros(4132)
+            return np.zeros(278)
 
     def load_model(self) -> bool:
         """
