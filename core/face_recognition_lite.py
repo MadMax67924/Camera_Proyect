@@ -42,6 +42,7 @@ class FaceRecognizerLite:
         # Almacenar encodings conocidos
         self.known_face_encodings = []
         self.known_face_names = []
+        self.encoding_dim = 135  # Por defecto, se actualizará al cargar modelo
 
         # Inicializar MediaPipe
         self.mp_face_detection = mp.solutions.face_detection
@@ -149,19 +150,34 @@ class FaceRecognizerLite:
     def extract_features(self, face_image: np.ndarray) -> np.ndarray:
         """
         Extrae características del rostro
+        Adapta automáticamente a la dimensionalidad esperada por el modelo
         """
         if self.net is not None:
             try:
-                return self._extract_features_dnn(face_image)
+                features = self._extract_features_dnn(face_image)
             except Exception as e:
-                print(f"[WARNING] Error con DNN, usando extractor simple: {e}")
-                return self._extract_features_simple(face_image)
+                features = self._extract_features_simple(face_image)
         else:
-            return self._extract_features_simple(face_image)
+            features = self._extract_features_simple(face_image)
+        
+        # Adaptar dimensionalidad si es necesario
+        if len(features) != self.encoding_dim:
+            if self.encoding_dim == 128:
+                # Convertir de 135 a 128 (truncar los últimos 7)
+                features = features[:128]
+            elif self.encoding_dim == 135:
+                # Asegurar que tenemos 135
+                if len(features) < 135:
+                    features = np.pad(features, (0, 135 - len(features)), mode='constant')
+                else:
+                    features = features[:135]
+        
+        return features
 
     def load_model(self) -> bool:
         """
         Carga el modelo entrenado desde archivo pickle
+        Detecta automáticamente la dimensionalidad de los encodings
         """
         if not os.path.exists(self.model_path):
             print(f"[INFO] No se encontró modelo en: {self.model_path}")
@@ -173,6 +189,17 @@ class FaceRecognizerLite:
                 data = pickle.load(f)
                 self.known_face_encodings = data['encodings']
                 self.known_face_names = data['names']
+
+            # Detectar dimensionalidad del modelo
+            if len(self.known_face_encodings) > 0:
+                encoding_dim = len(self.known_face_encodings[0])
+                self.encoding_dim = encoding_dim
+                if encoding_dim == 128:
+                    print(f"[OK] Modelo dlib detectado (128 dimensiones)")
+                elif encoding_dim == 135:
+                    print(f"[OK] Modelo lite detectado (135 dimensiones)")
+                else:
+                    print(f"[OK] Modelo personalizado ({encoding_dim} dimensiones)")
 
             print(f"[OK] Modelo cargado: {len(self.known_face_names)} rostros registrados")
             personas_unicas = set(self.known_face_names)
