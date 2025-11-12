@@ -4,6 +4,7 @@ Servidor de Streaming - 30 FPS + Detección y Reconocimiento Facial
 Raspberry Pi 3 / Fedora con cámara USB
 Mejorado con reconocimiento facial y selección de cámara
 VERSIÓN SIN DLIB - Más rápida en instalación
++ CONTROL BLE DE PUERTA INTEGRADO
 """
 
 from flask import Flask, render_template, Response, jsonify, request
@@ -16,6 +17,32 @@ import sys
 import numpy as np
 import urllib.request
 import socket
+
+# ============================================================================
+# VERIFICACIÓN AUTOMÁTICA DE DEPENDENCIAS
+# ============================================================================
+def check_and_install_dependencies():
+    """Verifica e instala dependencias faltantes si se solicita"""
+    # Si se pasa --install-deps, instalar automáticamente
+    auto_install = '--install-deps' in sys.argv
+
+    try:
+        from core.dependency_checker import verify_and_install
+        if not verify_and_install(auto_install=auto_install):
+            print("\n[ERROR] Faltan dependencias críticas")
+            print("[INFO] Ejecuta: python3 app.py --install-deps")
+            sys.exit(1)
+    except ImportError:
+        # Si el checker no existe, continuar normalmente
+        print("[INFO] Checker de dependencias no disponible")
+
+# Ejecutar verificación al inicio
+if '--no-check-deps' not in sys.argv:
+    check_and_install_dependencies()
+
+# ============================================================================
+# IMPORTAR MÓDULOS
+# ============================================================================
 
 # Importar módulo de reconocimiento facial (versión sin dlib)
 try:
@@ -34,6 +61,15 @@ except ImportError:
         FaceRecognizerLite = None
         print("[WARNING] Módulo de reconocimiento no disponible")
 
+# Importar módulo de control BLE de puerta
+try:
+    from core.ble_door_integration import get_ble_manager, init_ble_system, BLE_AVAILABLE
+    BLE_DOOR_AVAILABLE = BLE_AVAILABLE
+    print("[OK] Módulo BLE de puerta disponible")
+except ImportError:
+    BLE_DOOR_AVAILABLE = False
+    print("[INFO] Módulo BLE de puerta no disponible")
+
 app = Flask(__name__)
 
 # Variables globales
@@ -50,6 +86,11 @@ detection_enabled = False  # Toggle para detección facial (por defecto desactiv
 recognition_enabled = False  # Toggle para reconocimiento facial
 face_recognizer = None  # Instancia del reconocedor
 last_recognized_faces = []  # Últimos rostros reconocidos
+
+# Variables BLE
+ble_manager = None  # Gestor de puerta BLE
+ble_enabled = False  # Toggle para activar/desactivar control automático de puerta
+ble_connected = False  # Estado de conexión BLE
 
 def get_ip_address():
     """Obtiene la dirección IP local"""
@@ -310,6 +351,18 @@ def capture_frames():
                         recognized_faces = face_recognizer.recognize_faces(frame, scale_factor=0.25)
                         last_recognized_faces = recognized_faces
                         face_detected = len(recognized_faces) > 0
+
+                        # INTEGRACIÓN BLE: Abrir puerta automáticamente si está habilitado
+                        if ble_enabled and ble_manager and recognized_faces:
+                            for face_data in recognized_faces:
+                                name = face_data.get('name', 'Unknown')
+                                confidence = face_data.get('confidence', 0.0)
+
+                                # Solo procesar caras conocidas (no "Unknown")
+                                if name != 'Unknown' and confidence > 0.5:
+                                    # Intentar abrir puerta (con cooldown interno)
+                                    ble_manager.handle_recognized_face(name, confidence)
+
                     except Exception as e:
                         print(f"[ERROR] Reconocimiento falló: {e}")
                         recognized_faces = []
@@ -504,6 +557,171 @@ def get_cameras():
         'current': camera_device_id
     })
 
+# ============================================================================
+# ENDPOINTS BLE - CONTROL DE PUERTA
+# ============================================================================
+
+@app.route('/ble/status')
+def ble_status():
+    """Retorna el estado del sistema BLE"""
+    global ble_manager, ble_connected
+
+    if not BLE_DOOR_AVAILABLE:
+        return jsonify({
+            'available': False,
+            'message': 'Módulo BLE no disponible. Instala: pip3 install bleak'
+        })
+
+    if ble_manager:
+        status = ble_manager.get_status()
+        ble_connected = status['connected']
+        return jsonify({
+            'available': True,
+            'enabled': ble_enabled,
+            **status
+        })
+    else:
+        return jsonify({
+            'available': True,
+            'enabled': False,
+            'connected': False,
+            'message': 'BLE Manager no inicializado'
+        })
+
+@app.route('/ble/toggle', methods=['POST'])
+def ble_toggle():
+    """Activa/desactiva el control automático de puerta"""
+    global ble_enabled, ble_manager
+
+    if not BLE_DOOR_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'message': 'BLE no disponible'
+        }), 400
+
+    if not ble_manager:
+        return jsonify({
+            'success': False,
+            'message': 'BLE Manager no inicializado. Reinicia la app'
+        }), 400
+
+    ble_enabled = not ble_enabled
+    mode = "ACTIVADO" if ble_enabled else "DESACTIVADO"
+    print(f"[BLE] Control automático de puerta {mode}")
+
+    return jsonify({
+        'success': True,
+        'enabled': ble_enabled,
+        'message': f'Control BLE {mode}'
+    })
+
+@app.route('/ble/connect', methods=['POST'])
+def ble_connect():
+    """Conecta manualmente al dispositivo BLE"""
+    global ble_manager, ble_connected
+
+    if not BLE_DOOR_AVAILABLE or not ble_manager:
+        return jsonify({
+            'success': False,
+            'message': 'BLE no disponible'
+        }), 400
+
+    print("[BLE] Intentando conectar...")
+    success = ble_manager.connect()
+
+    if success:
+        ble_connected = True
+        return jsonify({
+            'success': True,
+            'message': 'Conectado al dispositivo BLE'
+        })
+    else:
+        ble_connected = False
+        return jsonify({
+            'success': False,
+            'message': 'No se pudo conectar. Verifica que el Arduino esté encendido'
+        }), 400
+
+@app.route('/ble/open_door', methods=['POST'])
+def ble_open_door():
+    """Abre la puerta manualmente"""
+    global ble_manager
+
+    if not BLE_DOOR_AVAILABLE or not ble_manager:
+        return jsonify({
+            'success': False,
+            'message': 'BLE no disponible'
+        }), 400
+
+    print("[BLE] Comando manual: Abrir puerta")
+    success = ble_manager.open_door_timed()
+
+    return jsonify({
+        'success': success,
+        'message': 'Puerta abierta' if success else 'Error al abrir puerta'
+    })
+
+@app.route('/ble/close_door', methods=['POST'])
+def ble_close_door():
+    """Cierra la puerta manualmente"""
+    global ble_manager
+
+    if not BLE_DOOR_AVAILABLE or not ble_manager:
+        return jsonify({
+            'success': False,
+            'message': 'BLE no disponible'
+        }), 400
+
+    print("[BLE] Comando manual: Cerrar puerta")
+    success = ble_manager.close_door()
+
+    return jsonify({
+        'success': success,
+        'message': 'Puerta cerrada' if success else 'Error al cerrar puerta'
+    })
+
+@app.route('/ble/add_user', methods=['POST'])
+def ble_add_user():
+    """Añade un usuario a la lista de autorizados"""
+    global ble_manager
+
+    if not BLE_DOOR_AVAILABLE or not ble_manager:
+        return jsonify({'success': False, 'message': 'BLE no disponible'}), 400
+
+    data = request.get_json()
+    name = data.get('name')
+
+    if not name:
+        return jsonify({'success': False, 'message': 'Nombre requerido'}), 400
+
+    ble_manager.add_authorized_user(name)
+
+    return jsonify({
+        'success': True,
+        'message': f'Usuario {name} añadido a la lista de autorizados'
+    })
+
+@app.route('/ble/remove_user', methods=['POST'])
+def ble_remove_user():
+    """Elimina un usuario de la lista de autorizados"""
+    global ble_manager
+
+    if not BLE_DOOR_AVAILABLE or not ble_manager:
+        return jsonify({'success': False, 'message': 'BLE no disponible'}), 400
+
+    data = request.get_json()
+    name = data.get('name')
+
+    if not name:
+        return jsonify({'success': False, 'message': 'Nombre requerido'}), 400
+
+    ble_manager.remove_authorized_user(name)
+
+    return jsonify({
+        'success': True,
+        'message': f'Usuario {name} eliminado de la lista'
+    })
+
 @app.route('/set_camera/<int:camera_id>', methods=['POST'])
 def set_camera(camera_id):
     """Cambia la cámara activa"""
@@ -584,7 +802,7 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 def main():
-    global is_capturing, camera_device_id, face_recognizer
+    global is_capturing, camera_device_id, face_recognizer, ble_manager, ble_connected
 
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -593,7 +811,7 @@ def main():
     platform_name = "Raspberry Pi 3" if platform == 'raspberry' else "PC/Laptop (Fedora)"
 
     print("\n" + "="*70)
-    print("  SISTEMA DE RECONOCIMIENTO FACIAL - MEJORADO")
+    print("  SISTEMA DE RECONOCIMIENTO FACIAL + CONTROL BLE")
     print(f"  Plataforma: {platform_name}")
     print("="*70)
 
@@ -661,6 +879,34 @@ def main():
         print("\n[WARNING] Módulo de reconocimiento no disponible")
         print("[INFO] Instala con: pip3 install mediapipe scipy")
 
+    # ============================================================================
+    # INICIALIZAR SISTEMA BLE
+    # ============================================================================
+    if BLE_DOOR_AVAILABLE:
+        print("\n[INFO] Inicializando sistema BLE de puerta...")
+        try:
+            ble_manager = get_ble_manager()
+            print("[BLE] ✓ Gestor BLE inicializado")
+
+            # Intentar conectar automáticamente (opcional)
+            if '--ble-autoconnect' in sys.argv:
+                print("[BLE] Intentando conexión automática...")
+                if ble_manager.connect():
+                    ble_connected = True
+                    print("[BLE] ✓ Conectado al Arduino Nano BLE")
+                else:
+                    print("[BLE] ⚠ No se pudo conectar automáticamente")
+                    print("[BLE] Usa el botón 'Conectar BLE' en la interfaz web")
+            else:
+                print("[BLE] Conexión manual (usa la interfaz web)")
+
+        except Exception as e:
+            print(f"[BLE] Error al inicializar: {e}")
+            ble_manager = None
+    else:
+        print("\n[INFO] Sistema BLE no disponible")
+        print("[INFO] Para habilitarlo: pip3 install bleak>=0.21.0")
+
     # Iniciar captura
     capture_thread = threading.Thread(target=capture_frames, daemon=True)
     capture_thread.start()
@@ -685,6 +931,17 @@ def main():
         print(f"  🧠 Reconocimiento: Disponible ({face_recognizer.get_person_count()} personas)")
     else:
         print(f"  🧠 Reconocimiento: No disponible")
+
+    # Estado BLE
+    if BLE_DOOR_AVAILABLE:
+        if ble_connected:
+            print(f"  🔓 Control BLE: Conectado (Automático: {'ON' if ble_enabled else 'OFF'})")
+        else:
+            print(f"  🔓 Control BLE: Disponible (No conectado)")
+        print(f"     API: http://{ip_address}:5000/ble/status")
+    else:
+        print(f"  🔓 Control BLE: No disponible (pip3 install bleak)")
+
     print(f"  📐 Resolución: 320x240")
     print(f"  🌐 IP Local: {ip_address}")
     print(f"  📷 Cámaras: {available_cameras} (usando {camera_device_id})")

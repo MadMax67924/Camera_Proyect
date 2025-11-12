@@ -1,0 +1,17 @@
+{
+  "authorized_users": [
+    "Lucho",
+    "Maxi",
+    "Nacho",
+    "Nico",
+    "Pablo",
+    "Victor"
+  ],
+  "door_open_duration": 3,
+  "cooldown_time": 5,
+  "_comments": {
+    "authorized_users": "Lista de nombres que pueden abrir la puerta automáticamente",
+    "door_open_duration": "Segundos que la puerta permanece abierta (3-10 recomendado)",
+    "cooldown_time": "Segundos antes de poder abrir de nuevo para la misma persona (5-30 recomendado)"
+  }
+}
