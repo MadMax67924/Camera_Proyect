@@ -16,13 +16,17 @@ import numpy as np
 import urllib.request
 import socket
 
-# Importar módulo de reconocimiento facial
+# Importar módulo de detección facial MTCNN
 try:
-    from core.face_recognition import FaceRecognizer
-    RECOGNITION_AVAILABLE = True
-except ImportError:
-    RECOGNITION_AVAILABLE = False
-    print("[WARNING] Módulo de reconocimiento no disponible")
+    from core.face_detector_mtcnn import FaceDetectorMTCNN, quick_detect_faces
+    DETECTION_AVAILABLE = True
+    print("[INFO] Módulo de detección MTCNN cargado correctamente")
+except ImportError as e:
+    DETECTION_AVAILABLE = False
+    print(f"[WARNING] Módulo de detección no disponible: {e}")
+
+# Mantener compatibilidad con el código existente
+RECOGNITION_AVAILABLE = False  # Desactivamos el reconocimiento por ahora
 
 app = Flask(__name__)
 
@@ -221,21 +225,25 @@ class CameraStream:
 
 def detect_faces(frame):
     """
-    Detecta rostros en el frame - OPTIMIZADO
+    Detecta rostros en el frame usando MTCNN
     """
-    # Convertir a escala de grises (más rápido)
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # Detección con parámetros optimizados para velocidad
-    faces = face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.2,      # Menos escalas = más rápido
-        minNeighbors=3,       # Menos vecinos = más rápido (pero menos preciso)
-        minSize=(30, 30),     # Tamaño mínimo de rostro
-        flags=cv2.CASCADE_SCALE_IMAGE
-    )
-
-    return faces
+    if not DETECTION_AVAILABLE:
+        return []
+    
+    try:
+        # Usar MTCNN para detección de rostros
+        detections = quick_detect_faces(frame, draw=False)[1]
+        
+        # Convertir el formato de MTCNN al formato esperado por el resto del código
+        faces = []
+        for det in detections:
+            x, y, w, h = det['box']
+            faces.append((x, y, w, h))
+            
+        return faces
+    except Exception as e:
+        print(f"Error en detección de rostros: {e}")
+        return []
 
 def capture_frames():
     """
@@ -314,23 +322,20 @@ def capture_frames():
 
             # Si solo detección está activa (sin reconocimiento)
             elif detection_enabled:
-                # Detectar cada 3 frames
-                if detection_counter % 3 == 0:
-                    faces = detect_faces(frame)
-                    face_detected = len(faces) > 0
+                # Detección de rostros (si está activada)
+                if detection_enabled and DETECTION_AVAILABLE:
+                    try:
+                        # Usar MTCNN para detección y dibujo
+                        frame, detections = quick_detect_faces(frame, draw=True)
+                        face_detected = len(detections) > 0
+                    except Exception as e:
+                        print(f"Error en detección MTCNN: {e}")
+                        face_detected = False
 
                 detection_counter += 1
 
-                # Dibujar rectángulos en rostros detectados
-                for (x, y, w, h) in faces:
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                    cv2.putText(frame, "ROSTRO", (x, y-10),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-            detection_counter += 1
-
-            # Información en pantalla (mínima para no afectar FPS)
-            cv2.putText(frame, f"FPS: {fps_actual:.0f}", (5, 20),
+                # Información en pantalla (mínima para no afectar FPS)
+                cv2.putText(frame, f"FPS: {fps_actual:.0f}", (5, 20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
             # Indicador de modo
