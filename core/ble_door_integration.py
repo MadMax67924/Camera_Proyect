@@ -326,40 +326,61 @@ class BLEDoorManager:
         thread = threading.Thread(target=timed_sequence, daemon=True)
         thread.start()
 
-    def handle_recognized_face(self, name: str, confidence: float = 0.0):
+    def handle_recognized_face(self, name: str, confidence: float = 0.0, is_unknown: bool = False):
         """
         Maneja el reconocimiento de una cara
-        Verifica autorización y cooldown antes de abrir
+        Verifica autorización y cooldown antes de enviar comando
+        
+        Args:
+            name: Nombre de la persona reconocida
+            confidence: Nivel de confianza (0-1)
+            is_unknown: True si es persona desconocida (envía 'C'), False si es conocida (envía 'A')
         """
-        # Verificar si está autorizado
-        if not self.is_authorized(name):
-            print(f"[BLE] ✗ Acceso denegado: {name} no autorizado")
-            return False
-
-        # Verificar cooldown
-        if not self.can_access_now(name):
-            elapsed = time.time() - self.last_access_times[name]
-            remaining = self.cooldown_time - elapsed
-            print(f"[BLE] ⏳ Cooldown activo para {name}: {remaining:.1f}s restantes")
-            return False
-
-        # Registrar acceso
+        # Registrar intento
         timestamp = time.time()
+        
+        # Determinar comando a enviar
+        if is_unknown:
+            # Persona desconocida: enviar 'C' (CLOSE/CERRAR)
+            print(f"[BLE] ⚠️  DESCONOCIDO detectado: {name} (confianza: {confidence:.1%})")
+            print(f"[BLE] Enviando comando: C (CERRAR/ALARMA)")
+            command = CMD_CLOSE
+            access_status = "DESCONOCIDO"
+        else:
+            # Persona conocida y autorizada: enviar 'A' (ABRIR)
+            if not self.is_authorized(name):
+                print(f"[BLE] ✗ Acceso denegado: {name} no está en lista de autorización")
+                command = CMD_CLOSE
+                access_status = "NO_AUTORIZADO"
+            elif not self.can_access_now(name):
+                elapsed = time.time() - self.last_access_times.get(name, 0)
+                remaining = self.cooldown_time - elapsed
+                print(f"[BLE] ⏳ Cooldown activo para {name}: {remaining:.1f}s restantes")
+                return False
+            else:
+                print(f"[BLE] ✓ CONOCIDO autorizado: {name} (confianza: {confidence:.1%})")
+                print(f"[BLE] Enviando comando: A (ABRIR)")
+                command = CMD_OPEN
+                access_status = "AUTORIZADO"
+        
+        # Actualizar timestamp de último acceso
         self.last_access_times[name] = timestamp
         self.total_accesses += 1
-
+        
+        # Registrar en log
         access_record = {
             'name': name,
             'confidence': confidence,
+            'status': access_status,
+            'command': 'A' if command == CMD_OPEN else 'C',
             'timestamp': timestamp,
             'time_str': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(timestamp))
         }
         self.access_log.append(access_record)
-
-        # Abrir puerta
-        print(f"[BLE] ✓ Acceso concedido: {name} (confianza: {confidence:.1%})")
-        self.open_door_timed()
-
+        
+        # Enviar comando al Arduino
+        self.send_command(command)
+        
         return True
 
     def get_status(self) -> dict:

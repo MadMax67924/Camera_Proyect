@@ -366,16 +366,22 @@ def capture_frames():
                         last_recognized_faces = recognized_faces
                         face_detected = len(recognized_faces) > 0
 
-                        # INTEGRACIÓN BLE: Abrir puerta automáticamente si está habilitado
+                        # INTEGRACIÓN BLE: Enviar comando al Arduino según reconocimiento
                         if ble_enabled and ble_manager and recognized_faces:
                             for face_data in recognized_faces:
                                 name = face_data.get('name', 'Unknown')
                                 confidence = face_data.get('confidence', 0.0)
-
-                                # Solo procesar caras conocidas (no "Unknown")
-                                if name != 'Unknown' and confidence > 0.5:
-                                    # Intentar abrir puerta (con cooldown interno)
-                                    ble_manager.handle_recognized_face(name, confidence)
+                                
+                                # Determinar si es desconocido
+                                is_unknown = (name == 'Unknown' or confidence < 0.5)
+                                
+                                if confidence > 0.3:  # Mínima confianza para procesar
+                                    # Enviar comando: 'A' para conocidos, 'C' para desconocidos
+                                    ble_manager.handle_recognized_face(
+                                        name, 
+                                        confidence,
+                                        is_unknown=is_unknown
+                                    )
 
                     except Exception as e:
                         print(f"[ERROR] Reconocimiento falló: {e}")
