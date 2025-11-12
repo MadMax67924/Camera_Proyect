@@ -172,29 +172,46 @@ class FaceRecognizerLite:
     def extract_features(self, face_image: np.ndarray) -> np.ndarray:
         """
         Extrae características del rostro
-        Adapta automáticamente a la dimensionalidad esperada por el modelo
+        IMPORTANTE: Debe coincidir exactamente con extract_face_features en train_model_new.py
         """
-        if self.net is not None:
-            try:
-                features = self._extract_features_dnn(face_image)
-            except Exception as e:
-                features = self._extract_features_simple(face_image)
-        else:
-            features = self._extract_features_simple(face_image)
-        
-        # Adaptar dimensionalidad si es necesario
-        if len(features) != self.encoding_dim:
-            if self.encoding_dim == 128:
-                # Convertir de 135 a 128 (truncar los últimos 7)
-                features = features[:128]
-            elif self.encoding_dim == 135:
-                # Asegurar que tenemos 135
-                if len(features) < 135:
-                    features = np.pad(features, (0, 135 - len(features)), mode='constant')
-                else:
-                    features = features[:135]
-        
-        return features
+        if face_image is None or face_image.size == 0:
+            return np.zeros(4132)
+
+        try:
+            # Redimensionar a tamaño fijo (64x64)
+            face_resized = cv2.resize(face_image, (64, 64))
+
+            # Convertir a escala de grises
+            if len(face_resized.shape) == 3:
+                face_gray = cv2.cvtColor(face_resized, cv2.COLOR_BGR2GRAY)
+            else:
+                face_gray = face_resized
+
+            # Extraer características (IGUAL A train_model_new.py)
+            features = []
+
+            # 1. Píxeles aplanados (64*64 = 4096)
+            features.extend(face_gray.flatten().tolist())
+
+            # 2. Estadísticas (2)
+            features.append(float(face_gray.mean()))
+            features.append(float(face_gray.std()))
+
+            # 3. Histograma (32)
+            hist = cv2.calcHist([face_gray], [0], None, [32], [0, 256])
+            features.extend(hist.flatten().tolist())
+
+            # 4. Bordes (2)
+            edges = cv2.Canny(face_gray, 100, 200)
+            features.append(float(edges.mean()))
+            features.append(float(edges.std()))
+
+            # Total: 4096 + 2 + 32 + 2 = 4132 características
+            return np.array(features, dtype=np.float32)
+
+        except Exception as e:
+            print(f"[WARNING] Error extrayendo características: {e}")
+            return np.zeros(4132)
 
     def load_model(self) -> bool:
         """
