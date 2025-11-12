@@ -257,47 +257,76 @@ class FaceRecognizerLite:
 
         results = []
 
-        # Convertir a RGB para MediaPipe
+        # Convertir a RGB para MediaPipe o usar directamente para Haar
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         # Reducir tamaño si es necesario
         if scale_factor < 1.0:
             h, w = rgb_frame.shape[:2]
             rgb_frame_small = cv2.resize(rgb_frame, (int(w * scale_factor), int(h * scale_factor)))
+            gray_frame_small = cv2.resize(gray_frame, (int(w * scale_factor), int(h * scale_factor)))
         else:
             rgb_frame_small = rgb_frame
+            gray_frame_small = gray_frame
 
-        # Detección con MediaPipe
-        results_det = self.face_detector.process(rgb_frame_small)
+        # Detección: usar MediaPipe si está disponible, si no usar Haar Cascade
+        if self.face_detector is not None:
+            # Detección con MediaPipe
+            try:
+                results_det = self.face_detector.process(rgb_frame_small)
+                detections = []
+                
+                if results_det.detections:
+                    h, w = rgb_frame_small.shape[:2]
+                    for detection in results_det.detections:
+                        bbox = detection.location_data.relative_bounding_box
+                        left = int(bbox.xmin * w)
+                        top = int(bbox.ymin * h)
+                        right = int((bbox.xmin + bbox.width) * w)
+                        bottom = int((bbox.ymin + bbox.height) * h)
+                        detections.append((left, top, right - left, bottom - top))
+            except Exception as e:
+                print(f"[WARNING] MediaPipe falló: {e}, usando Haar Cascade")
+                detections = []
+                self.face_detector = None  # Deshabilitar MediaPipe
+        else:
+            detections = []
 
-        if not results_det.detections:
+        # Fallback a Haar Cascade si MediaPipe no tenía detecciones
+        if not detections and hasattr(self, 'haar_cascade') and self.haar_cascade is not None:
+            # Detección con Haar Cascade
+            faces_haar = self.haar_cascade.detectMultiScale(
+                gray_frame_small,
+                scaleFactor=1.1,
+                minNeighbors=5,
+                minSize=(30, 30)
+            )
+            for (x, y, w, h) in faces_haar:
+                detections.append((x, y, w, h))
+
+        # Si todavía no hay detecciones, retornar vacío
+        if not detections:
             return []
 
-        h, w = rgb_frame_small.shape[:2]
+        h_orig, w_orig = frame.shape[:2]
         
         # Procesar cada rostro detectado
-        for detection in results_det.detections:
-            # Obtener bounding box
-            bbox = detection.location_data.relative_bounding_box
+        for det in detections:
+            x, y, w, h = det
             
-            # Convertir a coordenadas de píxeles
-            left = int(bbox.xmin * w)
-            top = int(bbox.ymin * h)
-            right = int((bbox.xmin + bbox.width) * w)
-            bottom = int((bbox.ymin + bbox.height) * h)
-
             # Ajustar coordenadas si se usó scale_factor
             if scale_factor < 1.0:
-                left = int(left / scale_factor)
-                top = int(top / scale_factor)
-                right = int(right / scale_factor)
-                bottom = int(bottom / scale_factor)
+                x = int(x / scale_factor)
+                y = int(y / scale_factor)
+                w = int(w / scale_factor)
+                h = int(h / scale_factor)
 
             # Asegurar que están dentro de los límites
-            left = max(0, left)
-            top = max(0, top)
-            right = min(frame.shape[1], right)
-            bottom = min(frame.shape[0], bottom)
+            left = max(0, x)
+            top = max(0, y)
+            right = min(w_orig, x + w)
+            bottom = min(h_orig, y + h)
 
             if right <= left or bottom <= top:
                 continue
