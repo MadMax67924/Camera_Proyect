@@ -883,29 +883,52 @@ def main():
     # INICIALIZAR SISTEMA BLE
     # ============================================================================
     if BLE_DOOR_AVAILABLE:
-        print("\n[INFO] Inicializando sistema BLE de puerta...")
+        print("\n" + "="*70)
+        print("  INICIALIZANDO SISTEMA BLE DE PUERTA")
+        print("="*70)
+
         try:
             ble_manager = get_ble_manager()
             print("[BLE] ✓ Gestor BLE inicializado")
 
-            # Intentar conectar automáticamente (opcional)
-            if '--ble-autoconnect' in sys.argv:
-                print("[BLE] Intentando conexión automática...")
+            # Intentar conectar automáticamente (POR DEFECTO)
+            # Desactivar con --no-ble-autoconnect
+            auto_connect = '--no-ble-autoconnect' not in sys.argv
+
+            if auto_connect:
+                print("\n[BLE] Intentando conexión automática...")
+                print("[BLE] (Desactiva con: python3 app.py --no-ble-autoconnect)")
+                print("")
+
                 if ble_manager.connect():
                     ble_connected = True
-                    print("[BLE] ✓ Conectado al Arduino Nano BLE")
+                    print("\n[BLE] ✓✓✓ CONEXIÓN AUTOMÁTICA EXITOSA ✓✓✓")
+                    print("[BLE] El sistema puede abrir la puerta automáticamente")
+                    print("[BLE] (Activa reconocimiento + control BLE en la interfaz)")
                 else:
-                    print("[BLE] ⚠ No se pudo conectar automáticamente")
-                    print("[BLE] Usa el botón 'Conectar BLE' en la interfaz web")
+                    print("\n[BLE] ⚠⚠⚠ NO SE PUDO CONECTAR AUTOMÁTICAMENTE ⚠⚠⚠")
+                    print("[BLE] El sistema funcionará sin control de puerta")
+                    print("[BLE] Puedes conectar manualmente desde:")
+                    print("[BLE]   - Interfaz web: Botón 'Conectar BLE'")
+                    print("[BLE]   - API: POST /ble/connect")
             else:
-                print("[BLE] Conexión manual (usa la interfaz web)")
+                print("[BLE] Auto-conexión desactivada")
+                print("[BLE] Usa la interfaz web o API para conectar")
 
         except Exception as e:
-            print(f"[BLE] Error al inicializar: {e}")
+            print(f"\n[BLE] ✗✗✗ ERROR AL INICIALIZAR ✗✗✗")
+            print(f"[BLE] Error: {e}")
+            import traceback
+            traceback.print_exc()
             ble_manager = None
     else:
-        print("\n[INFO] Sistema BLE no disponible")
-        print("[INFO] Para habilitarlo: pip3 install bleak>=0.21.0")
+        print("\n" + "="*70)
+        print("  SISTEMA BLE NO DISPONIBLE")
+        print("="*70)
+        print("\n[INFO] Para habilitar control BLE de puerta:")
+        print("[INFO]   1. Instala: pip3 install bleak>=0.21.0")
+        print("[INFO]   2. O ejecuta: python3 app.py --install-deps")
+        print("")
 
     # Iniciar captura
     capture_thread = threading.Thread(target=capture_frames, daemon=True)

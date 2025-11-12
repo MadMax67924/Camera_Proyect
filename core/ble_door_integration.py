@@ -144,37 +144,104 @@ class BLEDoorManager:
 
     async def _find_nano_device(self, timeout: int = 10) -> Optional[str]:
         """Busca el dispositivo Arduino Nano BLE"""
-        print(f"[BLE] Buscando 'NanoDoorBLE'... ({timeout}s)")
+        print(f"\n[BLE] ========================================")
+        print(f"[BLE] Escaneando dispositivos BLE...")
+        print(f"[BLE] Buscando 'NanoDoorBLE' (timeout: {timeout}s)")
+        print(f"[BLE] ========================================")
+
         devices = await BleakScanner.discover(timeout=timeout)
 
+        print(f"[BLE] Dispositivos encontrados: {len(devices)}")
+
+        # Mostrar todos los dispositivos para debugging
+        for i, device in enumerate(devices):
+            name = device.name if device.name else "Sin nombre"
+            print(f"[BLE]   {i+1}. {name} - {device.address}")
+
+        # Buscar NanoDoorBLE (case-insensitive)
         for device in devices:
-            if device.name and "NanoDoorBLE" in device.name:
-                print(f"[BLE] ✓ Encontrado: {device.name} [{device.address}]")
+            if device.name and "nanodoorble" in device.name.lower():
+                print(f"\n[BLE] ✓✓✓ ENCONTRADO: {device.name} [{device.address}]")
+                print(f"[BLE] RSSI: {device.rssi if hasattr(device, 'rssi') else 'N/A'} dBm")
                 return device.address
 
-        print("[BLE] ✗ Dispositivo no encontrado")
+        print(f"\n[BLE] ✗✗✗ 'NanoDoorBLE' no encontrado entre {len(devices)} dispositivos")
+        print(f"[BLE] Verifica que el Arduino Nano 33 BLE esté:")
+        print(f"[BLE]   1. Encendido")
+        print(f"[BLE]   2. Ejecutando el código correcto")
+        print(f"[BLE]   3. Cerca del dispositivo (< 10 metros)")
         return None
 
     async def _connect_async(self) -> bool:
         """Conecta al dispositivo BLE (async)"""
         try:
-            if self.connected and self.client and await self.client.is_connected():
-                return True
+            # Verificar si ya está conectado
+            if self.connected and self.client:
+                try:
+                    if await self.client.is_connected():
+                        print("[BLE] Ya está conectado")
+                        return True
+                except:
+                    pass  # Si falla la verificación, intentar reconectar
 
+            # Buscar dispositivo si no tenemos la dirección
             if not self.device_address:
-                self.device_address = await self._find_nano_device()
+                print("[BLE] No hay dirección guardada, buscando dispositivo...")
+                self.device_address = await self._find_nano_device(timeout=15)
                 if not self.device_address:
                     return False
 
-            print(f"[BLE] Conectando a {self.device_address}...")
-            self.client = BleakClient(self.device_address, timeout=15.0)
+            # Intentar conectar
+            print(f"\n[BLE] ========================================")
+            print(f"[BLE] Iniciando conexión...")
+            print(f"[BLE] Dispositivo: {self.device_address}")
+            print(f"[BLE] Timeout: 20 segundos")
+            print(f"[BLE] ========================================")
+
+            self.client = BleakClient(self.device_address, timeout=20.0)
+
+            print(f"[BLE] Conectando... (puede tomar 5-10 segundos)")
             await self.client.connect()
+
+            # Verificar servicios
+            print(f"[BLE] ✓ Conexión establecida")
+            print(f"[BLE] Verificando servicios...")
+
+            services = await self.client.get_services()
+            service_found = False
+
+            for service in services:
+                if SERVICE_UUID.lower() in service.uuid.lower():
+                    service_found = True
+                    print(f"[BLE] ✓ Servicio encontrado: {service.uuid}")
+                    break
+
+            if not service_found:
+                print(f"[BLE] ⚠ Servicio {SERVICE_UUID} no encontrado")
+                print(f"[BLE] Servicios disponibles:")
+                for service in services:
+                    print(f"[BLE]   - {service.uuid}")
+
             self.connected = True
-            print("[BLE] ✓ Conectado exitosamente")
+            print(f"\n[BLE] ✓✓✓ CONECTADO EXITOSAMENTE ✓✓✓")
             return True
 
         except Exception as e:
-            print(f"[BLE] ✗ Error al conectar: {e}")
+            print(f"\n[BLE] ✗✗✗ ERROR AL CONECTAR ✗✗✗")
+            print(f"[BLE] Error: {e}")
+            print(f"[BLE] Tipo: {type(e).__name__}")
+
+            # Sugerencias según el error
+            if "timeout" in str(e).lower():
+                print(f"[BLE] → El dispositivo no respondió a tiempo")
+                print(f"[BLE] → Intenta acercarte más al Arduino")
+            elif "not found" in str(e).lower():
+                print(f"[BLE] → Dispositivo no encontrado")
+                print(f"[BLE] → Verifica que el Arduino esté encendido")
+            elif "permission" in str(e).lower():
+                print(f"[BLE] → Error de permisos")
+                print(f"[BLE] → Ejecuta: sudo usermod -a -G bluetooth $USER")
+
             self.connected = False
             return False
 

@@ -43,21 +43,26 @@ def install_package(package_name: str, version: str = None) -> bool:
     """
     try:
         package_spec = f"{package_name}{version}" if version else package_name
-        print(f"[INSTALL] Instalando {package_spec}...")
+        print(f"\n[INSTALL] Instalando {package_spec}...")
+        print(f"[INSTALL] Esto puede tomar unos minutos...")
 
-        # Usar pip del python actual
-        subprocess.check_call(
-            [sys.executable, '-m', 'pip', 'install', package_spec],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE
+        # Usar pip del python actual - MOSTRAR OUTPUT
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', package_spec, '--verbose'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
         )
 
-        print(f"[INSTALL] ✓ {package_name} instalado")
-        return True
+        # Mostrar progreso
+        if result.returncode == 0:
+            print(f"[INSTALL] ✓ {package_name} instalado correctamente")
+            return True
+        else:
+            print(f"[INSTALL] ✗ Error instalando {package_name}")
+            print(f"[INSTALL] Salida: {result.stdout[-500:]}")  # Últimos 500 chars
+            return False
 
-    except subprocess.CalledProcessError as e:
-        print(f"[INSTALL] ✗ Error instalando {package_name}: {e}")
-        return False
     except Exception as e:
         print(f"[INSTALL] ✗ Error inesperado: {e}")
         return False
