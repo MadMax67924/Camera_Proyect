@@ -32,14 +32,14 @@ class FaceRecognizerLite:
     """
 
     def __init__(self, model_path: str = "models/faces_model.pkl",
-                 tolerance: float = 5.0,
+                 tolerance: float = 60.0,
                  use_distance: str = "euclidean"):
         """
         Inicializa el reconocedor facial
 
         Args:
             model_path: Ruta al archivo del modelo entrenado
-            tolerance: Umbral de similitud para KNN (mayor = más permisivo)
+            tolerance: Umbral de similitud para KNN (mayor = más permisivo). Para este modelo: ~60
             use_distance: "cosine" o "euclidean" para comparación
         """
         self.model_path = model_path
@@ -393,16 +393,22 @@ class FaceRecognizerLite:
                     # Predicción y distancia
                     distances, indices = self.knn_classifier.kneighbors(encoding_scaled)
                     best_distance = distances[0][0]  # Distancia del vecino más cercano
-                    best_match_index = indices[0][0]
+                    best_match_index = indices[0][0]  # Índice en y_train
                     
-                    # DEBUG: mostrar distancia
-                    print(f"[DEBUG] Distancia KNN: {best_distance:.4f} | Umbral: {self.tolerance} | Persona: {self.known_face_names[best_match_index]}")
-                    
-                    # Verificar umbral
-                    if best_distance <= self.tolerance:
-                        name = self.known_face_names[best_match_index]
-                        confidence = self._distance_to_confidence(best_distance)
+                    # Obtener nombre del mejor match
+                    if best_match_index < len(self.known_face_names):
+                        best_name = self.known_face_names[best_match_index]
+                        print(f"[DEBUG] Distancia KNN: {best_distance:.4f} | Umbral: {self.tolerance} | Persona: {best_name}")
+                        
+                        # Verificar umbral
+                        if best_distance <= self.tolerance:
+                            name = best_name
+                            confidence = self._distance_to_confidence(best_distance)
+                        else:
+                            name = "Desconocido"
+                            confidence = 0.0
                     else:
+                        print(f"[ERROR] Índice {best_match_index} fuera de rango. Nombres disponibles: {len(self.known_face_names)}")
                         name = "Desconocido"
                         confidence = 0.0
                 

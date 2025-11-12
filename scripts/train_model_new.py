@@ -205,7 +205,8 @@ def train_model(dataset_dir: str = "dataset/raw",
     model_data = {
         'classifier': knn,
         'scaler': scaler,
-        'names': list(set(y_train))
+        'names': y_train,  # Guardar la lista completa con nombres repetidos (debe coincidir con índices del KNN)
+        'unique_names': list(set(y_train))  # También guardar las únicas para referencia
     }
     
     with open(output_model, 'wb') as f:
