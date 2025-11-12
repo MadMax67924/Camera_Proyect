@@ -51,6 +51,11 @@ class FaceRecognizerLite:
         self.known_face_names = []
         self.encoding_dim = 135  # Por defecto, se actualizará al cargar modelo
 
+        # Variables para modelo KNN (formato lite nuevo)
+        self.knn_classifier = None
+        self.scaler = None
+        self.is_lite_model = False
+
         # Inicializar MediaPipe (opcional)
         if MEDIAPIPE_AVAILABLE:
             self.mp_face_detection = mp.solutions.face_detection
@@ -194,7 +199,9 @@ class FaceRecognizerLite:
     def load_model(self) -> bool:
         """
         Carga el modelo entrenado desde archivo pickle
-        Detecta automáticamente la dimensionalidad de los encodings
+        Compatible con dos formatos:
+        1. Formato lite: {'classifier': KNN, 'scaler': StandardScaler, 'names': [...]}
+        2. Formato dlib: {'encodings': [...], 'names': [...]}
         """
         if not os.path.exists(self.model_path):
             print(f"[INFO] No se encontró modelo en: {self.model_path}")
@@ -204,27 +211,49 @@ class FaceRecognizerLite:
         try:
             with open(self.model_path, 'rb') as f:
                 data = pickle.load(f)
+
+            # Detectar formato del modelo
+            if 'classifier' in data and 'scaler' in data:
+                # Formato LITE (nuevo con KNN)
+                print("[INFO] Detectado formato LITE (KNN + StandardScaler)")
+                self.knn_classifier = data['classifier']
+                self.scaler = data['scaler']
+                self.known_face_names = data['names']
+                self.is_lite_model = True
+                print(f"[OK] Modelo KNN cargado: {len(self.known_face_names)} personas registradas")
+                print(f"[OK] Personas: {', '.join(sorted(set(self.known_face_names)))}")
+                return True
+                
+            elif 'encodings' in data:
+                # Formato DLIB (antiguo con encodings)
+                print("[INFO] Detectado formato DLIB (Encodings)")
                 self.known_face_encodings = data['encodings']
                 self.known_face_names = data['names']
+                self.is_lite_model = False
 
-            # Detectar dimensionalidad del modelo
-            if len(self.known_face_encodings) > 0:
-                encoding_dim = len(self.known_face_encodings[0])
-                self.encoding_dim = encoding_dim
-                if encoding_dim == 128:
-                    print(f"[OK] Modelo dlib detectado (128 dimensiones)")
-                elif encoding_dim == 135:
-                    print(f"[OK] Modelo lite detectado (135 dimensiones)")
-                else:
-                    print(f"[OK] Modelo personalizado ({encoding_dim} dimensiones)")
+                # Detectar dimensionalidad del modelo
+                if len(self.known_face_encodings) > 0:
+                    encoding_dim = len(self.known_face_encodings[0])
+                    self.encoding_dim = encoding_dim
+                    if encoding_dim == 128:
+                        print(f"[OK] Modelo dlib detectado (128 dimensiones)")
+                    elif encoding_dim == 135:
+                        print(f"[OK] Modelo lite detectado (135 dimensiones)")
+                    else:
+                        print(f"[OK] Modelo personalizado ({encoding_dim} dimensiones)")
 
-            print(f"[OK] Modelo cargado: {len(self.known_face_names)} rostros registrados")
-            personas_unicas = set(self.known_face_names)
-            print(f"[OK] Personas: {', '.join(sorted(personas_unicas))}")
-            return True
+                print(f"[OK] Modelo cargado: {len(self.known_face_names)} rostros registrados")
+                personas_unicas = set(self.known_face_names)
+                print(f"[OK] Personas: {', '.join(sorted(personas_unicas))}")
+                return True
+            else:
+                print(f"[ERROR] Formato de modelo no reconocido. Keys disponibles: {data.keys()}")
+                return False
 
         except Exception as e:
             print(f"[ERROR] No se pudo cargar el modelo: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def _distance_to_confidence(self, distance: float) -> float:
@@ -252,7 +281,8 @@ class FaceRecognizerLite:
         Returns:
             Lista de diccionarios con información de rostros detectados
         """
-        if not self.known_face_encodings:
+        # Verificar si hay modelo cargado (KNN o encodings)
+        if not self.known_face_encodings and not self.is_lite_model:
             return []
 
         results = []
@@ -338,23 +368,45 @@ class FaceRecognizerLite:
                 # Extraer características
                 encoding = self.extract_features(face_image)
 
-                # Comparar con rostros conocidos
-                if self.use_distance == "cosine":
-                    distances = [cosine(encoding, known_enc) for known_enc in self.known_face_encodings]
-                else:
-                    distances = [euclidean(encoding, known_enc) for known_enc in self.known_face_encodings]
+                # Reconocimiento usando KNN (formato lite nuevo)
+                if self.is_lite_model and self.knn_classifier is not None:
+                    # Normalizar con scaler
+                    encoding_scaled = self.scaler.transform([encoding])
+                    
+                    # Predicción y distancia
+                    distances, indices = self.knn_classifier.kneighbors(encoding_scaled)
+                    best_distance = distances[0][0]  # Distancia del vecino más cercano
+                    best_match_index = indices[0][0]
+                    
+                    # Verificar umbral
+                    if best_distance <= self.tolerance:
+                        name = self.known_face_names[best_match_index]
+                        confidence = self._distance_to_confidence(best_distance)
+                    else:
+                        name = "Desconocido"
+                        confidence = 0.0
+                
+                # Reconocimiento usando encodings (formato dlib antiguo)
+                elif self.known_face_encodings:
+                    # Comparar con rostros conocidos
+                    if self.use_distance == "cosine":
+                        distances = [cosine(encoding, known_enc) for known_enc in self.known_face_encodings]
+                    else:
+                        distances = [euclidean(encoding, known_enc) for known_enc in self.known_face_encodings]
 
-                # Encontrar mejor match
-                best_match_index = np.argmin(distances)
-                best_distance = distances[best_match_index]
+                    # Encontrar mejor match
+                    best_match_index = np.argmin(distances)
+                    best_distance = distances[best_match_index]
 
-                # Verificar si está dentro del umbral
-                if best_distance <= self.tolerance:
-                    name = self.known_face_names[best_match_index]
-                    confidence = self._distance_to_confidence(best_distance)
+                    # Verificar si está dentro del umbral
+                    if best_distance <= self.tolerance:
+                        name = self.known_face_names[best_match_index]
+                        confidence = self._distance_to_confidence(best_distance)
+                    else:
+                        name = "Desconocido"
+                        confidence = 0.0
                 else:
-                    name = "Desconocido"
-                    confidence = 0.0
+                    continue
 
                 results.append({
                     'name': name,
@@ -366,6 +418,8 @@ class FaceRecognizerLite:
 
             except Exception as e:
                 print(f"[WARNING] Error procesando rostro: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
 
         return results
