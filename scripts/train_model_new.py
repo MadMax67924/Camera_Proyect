@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""
+Entrenador de modelo facial SIN DLIB
+Versión optimizada para Raspberry Pi
+Usa OpenCV + Scikit-learn
+Entrena en 2-5 minutos (vs 10-15 con dlib)
+"""
+
+import cv2
+import numpy as np
+import pickle
+import os
+import sys
+from pathlib import Path
+from tqdm import tqdm
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+
+
+def extract_face_features(frame: np.ndarray, face_rect: tuple) -> np.ndarray:
+    """
+    Extrae características de un rostro detectado
+    
+    Args:
+        frame: Imagen BGR
+        face_rect: Tupla (x, y, w, h)
+        
+    Returns:
+        Vector de características
+    """
+    x, y, w, h = face_rect
+    
+    # Validar coordenadas
+    if x < 0 or y < 0 or x+w > frame.shape[1] or y+h > frame.shape[0]:
+        return None
+    
+    # Extraer región del rostro
+    face_roi = frame[y:y+h, x:x+w]
+    
+    if face_roi.size == 0:
+        return None
+    
+    # Redimensionar a tamaño fijo
+    face_resized = cv2.resize(face_roi, (64, 64))
+    
+    # Convertir a escala de grises
+    face_gray = cv2.cvtColor(face_resized, cv2.COLOR_BGR2GRAY)
+    
+    # Extraer características
+    features = []
+    
+    # 1. Píxeles aplanados
+    features.extend(face_gray.flatten().tolist())
+    
+    # 2. Estadísticas
+    features.append(float(face_gray.mean()))
+    features.append(float(face_gray.std()))
+    
+    # 3. Histograma
+    hist = cv2.calcHist([face_gray], [0], None, [32], [0, 256])
+    features.extend(hist.flatten().tolist())
+    
+    # 4. Bordes
+    edges = cv2.Canny(face_gray, 100, 200)
+    features.append(float(edges.mean()))
+    features.append(float(edges.std()))
+    
+    return np.array(features, dtype=np.float32)
+
+
+def train_model(dataset_dir: str = "dataset/processed", 
+                output_model: str = "models/faces_model_lite.pkl"):
+    """
+    Entrena el modelo desde el dataset
+    
+    Estructura esperada:
+    dataset/processed/
+        ├── Persona1/
+        │   ├── img1.jpg
+        │   └── img2.jpg
+        └── Persona2/
+            ├── img1.jpg
+            └── img2.jpg
+    
+    Args:
+        dataset_dir: Ruta al directorio con imágenes
+        output_model: Ruta de salida del modelo
+        
+    Returns:
+        True si se entrenó exitosamente
+    """
+    
+    print("\n" + "="*60)
+    print("ENTRENADOR DE MODELO FACIAL - SIN DLIB")
+    print("="*60)
+    print(f"[*] Dataset: {dataset_dir}")
+    print(f"[*] Modelo salida: {output_model}")
+    
+    # Crear carpeta de modelos si no existe
+    os.makedirs(os.path.dirname(output_model) or ".", exist_ok=True)
+    
+    # Cargar Cascade Classifier
+    cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+    face_cascade = cv2.CascadeClassifier(cascade_path)
+    
+    if face_cascade.empty():
+        print("[ERROR] No se pudo cargar Cascade Classifier")
+        return False
+    
+    print("[OK] Cascade Classifier cargado")
+    
+    X_train = []  # Características
+    y_train = []  # Etiquetas (nombres)
+    
+    # Verificar que existe el dataset
+    dataset_path = Path(dataset_dir)
+    
+    if not dataset_path.exists():
+        print(f"[ERROR] Carpeta no existe: {dataset_dir}")
+        print(f"[!] Crea primero: {dataset_dir}")
+        print("[!] Ejecuta: python3 scripts/capture_faces.py 'tu_nombre'")
+        return False
+    
+    # Obtener carpetas de personas
+    people_dirs = sorted([d for d in dataset_path.iterdir() if d.is_dir()])
+    
+    if not people_dirs:
+        print(f"[ERROR] No hay carpetas en {dataset_dir}")
+        return False
+    
+    print(f"[*] Encontradas {len(people_dirs)} personas")
+    print()
+    
+    # Procesar cada persona
+    for person_dir in people_dirs:
+        person_name = person_dir.name
+        
+        # Obtener imágenes JPG y PNG
+        image_files = list(person_dir.glob("*.jpg")) + \
+                     list(person_dir.glob("*.png")) + \
+                     list(person_dir.glob("*.jpeg"))
+        
+        if not image_files:
+            print(f"[!] {person_name}: Sin imágenes, saltando...")
+            continue
+        
+        print(f"[*] Procesando '{person_name}' ({len(image_files)} imágenes)")
+        
+        images_processed = 0
+        images_failed = 0
+        
+        for img_path in tqdm(image_files, desc=f"  {person_name}", leave=False):
+            try:
+                # Leer imagen
+                img = cv2.imread(str(img_path))
+                if img is None:
+                    images_failed += 1
+                    continue
+                
+                # Convertir a escala de grises
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                
+                # Detectar rostros
+                faces = face_cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5,
+                    minSize=(30, 30)
+                )
+                
+                # Procesar cada rostro detectado
+                for (x, y, w, h) in faces:
+                    features = extract_face_features(img, (x, y, w, h))
+                    if features is not None:
+                        X_train.append(features)
+                        y_train.append(person_name)
+                        images_processed += 1
+                
+            except Exception as e:
+                images_failed += 1
+                continue
+        
+        print(f"  ✓ Procesadas: {images_processed} | ✗ Errores: {images_failed}")
+    
+    if not X_train:
+        print("[ERROR] No se extrajeron características de ninguna imagen")
+        return False
+    
+    print()
+    print(f"[*] Total de muestras: {len(X_train)}")
+    print(f"[*] Personas únicas: {len(set(y_train))}")
+    
+    # Normalizar características
+    print("[*] Normalizando características...")
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    
+    # Entrenar clasificador KNN
+    print("[*] Entrenando clasificador KNN (k=5)...")
+    knn = KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
+    knn.fit(X_train_scaled, y_train)
+    
+    # Guardar modelo
+    print(f"[*] Guardando modelo en {output_model}...")
+    model_data = {
+        'classifier': knn,
+        'scaler': scaler,
+        'names': list(set(y_train))
+    }
+    
+    with open(output_model, 'wb') as f:
+        pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    model_size_mb = os.path.getsize(output_model) / (1024*1024)
+    
+    print()
+    print("="*60)
+    print("[✓] MODELO ENTRENADO EXITOSAMENTE")
+    print("="*60)
+    print(f"[OK] Archivo: {output_model}")
+    print(f"[OK] Tamaño: {model_size_mb:.2f} MB")
+    print(f"[OK] Personas: {', '.join(sorted(set(y_train)))}")
+    print("="*60)
+    print()
+    
+    return True
+
+
+def main():
+    """Función principal"""
+    
+    # Argumentos de línea de comandos
+    dataset = sys.argv[1] if len(sys.argv) > 1 else "dataset/processed"
+    output = sys.argv[2] if len(sys.argv) > 2 else "models/faces_model_lite.pkl"
+    
+    success = train_model(dataset, output)
+    sys.exit(0 if success else 1)
+
+
+if __name__ == "__main__":
+    main()

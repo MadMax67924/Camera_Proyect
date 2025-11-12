@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """
-Script para entrenar el modelo de reconocimiento facial
+Script para entrenar modelo de reconocimiento facial - SIN DLIB
 Lee fotos del directorio dataset/raw/ y genera modelo entrenado
+Usa core.face_recognition_lite en lugar de face_recognition (dlib)
 """
 
-import face_recognition
 import os
 import sys
 import pickle
 from pathlib import Path
 import cv2
 from tqdm import tqdm
+
+# Importar el reconocedor sin dlib
+try:
+    from core.face_recognition_lite import FaceRecognizerLite
+except ImportError:
+    print("[ERROR] No se pudo importar FaceRecognizerLite")
+    print("[INFO] Asegúrate de que core/face_recognition_lite.py existe")
+    sys.exit(1)
 
 
 def load_training_data(dataset_path: str = "dataset/raw"):
@@ -48,7 +56,7 @@ def load_training_data(dataset_path: str = "dataset/raw"):
         return None, None
 
     print("\n" + "="*70)
-    print("  CARGANDO DATOS DE ENTRENAMIENTO")
+    print("  ENTRENAMIENTO SIN DLIB - Cargando datos")
     print("="*70)
     print(f"\n[INFO] Directorio: {dataset_path}")
     print(f"[INFO] Personas encontradas: {len(person_dirs)}\n")
@@ -56,8 +64,11 @@ def load_training_data(dataset_path: str = "dataset/raw"):
     total_images = 0
     failed_images = 0
 
+    # Inicializar reconocedor (para extractor de características)
+    recognizer = FaceRecognizerLite()
+
     # Procesar cada persona
-    for person_dir in person_dirs:
+    for person_dir in sorted(person_dirs):
         person_name = person_dir.name
         image_files = list(person_dir.glob("*.jpg")) + \
                      list(person_dir.glob("*.jpeg")) + \
@@ -72,179 +83,139 @@ def load_training_data(dataset_path: str = "dataset/raw"):
         # Procesar cada imagen con barra de progreso
         for image_path in tqdm(image_files, desc=f"  {person_name}", ncols=70):
             try:
-                # Cargar imagen
-                image = face_recognition.load_image_file(str(image_path))
+                # Cargar imagen con OpenCV
+                image = cv2.imread(str(image_path))
 
-                # Detectar rostros en la imagen
-                face_locations = face_recognition.face_locations(image, model="hog")
+                if image is None:
+                    print(f"\n  [WARNING] No se pudo cargar: {image_path.name}")
+                    failed_images += 1
+                    continue
 
-                if len(face_locations) == 0:
+                # Detectar rostros con MediaPipe
+                rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                results = recognizer.face_detector.process(rgb_image)
+
+                if not results.detections:
                     print(f"\n  [WARNING] No se detectó rostro en: {image_path.name}")
                     failed_images += 1
                     continue
 
-                if len(face_locations) > 1:
+                if len(results.detections) > 1:
                     print(f"\n  [WARNING] Múltiples rostros en: {image_path.name} (usando el primero)")
 
-                # Obtener encoding del primer rostro
-                face_encodings = face_recognition.face_encodings(image, face_locations)
+                # Extraer primer rostro
+                detection = results.detections[0]
+                bbox = detection.location_data.relative_bounding_box
 
-                if face_encodings:
-                    encodings.append(face_encodings[0])
+                h, w = rgb_image.shape[:2]
+                left = int(bbox.xmin * w)
+                top = int(bbox.ymin * h)
+                right = int((bbox.xmin + bbox.width) * w)
+                bottom = int((bbox.ymin + bbox.height) * h)
+
+                # Asegurar límites
+                left = max(0, left)
+                top = max(0, top)
+                right = min(w, right)
+                bottom = min(h, bottom)
+
+                if right <= left or bottom <= top:
+                    print(f"\n  [WARNING] Bbox inválido en: {image_path.name}")
+                    failed_images += 1
+                    continue
+
+                # Extraer región del rostro
+                face_image = image[top:bottom, left:right]
+
+                # Extraer características
+                encoding = recognizer.extract_features(face_image)
+
+                if encoding is not None and len(encoding) > 0:
+                    encodings.append(encoding)
                     names.append(person_name)
                     total_images += 1
                 else:
-                    print(f"\n  [WARNING] No se pudo obtener encoding de: {image_path.name}")
+                    print(f"\n  [WARNING] No se pudo extraer encoding de: {image_path.name}")
                     failed_images += 1
 
             except Exception as e:
-                print(f"\n  [ERROR] Error procesando {image_path.name}: {e}")
+                print(f"\n  [WARNING] Error procesando {image_path.name}: {e}")
                 failed_images += 1
+                continue
 
-    print("\n" + "-"*70)
-    print(f"[INFO] Imágenes procesadas exitosamente: {total_images}")
-    if failed_images > 0:
-        print(f"[WARNING] Imágenes con errores: {failed_images}")
+        print(f"  ✓ {person_name}: {sum(1 for n in names if n == person_name)} rostros extraídos")
 
     return encodings, names
 
 
-def save_model(encodings, names, output_path: str = "models/faces_model.pkl"):
+def train_model(encodings, names, output_path: str = "models/faces_model.pkl"):
     """
-    Guarda el modelo entrenado en formato pickle
+    Entrena y guarda el modelo
 
     Args:
-        encodings: Lista de encodings faciales
+        encodings: Lista de encodings (características)
         names: Lista de nombres correspondientes
         output_path: Ruta donde guardar el modelo
     """
+    if not encodings or not names:
+        print("[ERROR] No hay datos para entrenar")
+        return False
+
     # Crear directorio si no existe
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    # Preparar datos
-    data = {
-        'encodings': encodings,
-        'names': names
-    }
-
-    # Guardar
     try:
+        # Preparar datos
+        data = {
+            'encodings': encodings,
+            'names': names
+        }
+
+        # Guardar modelo
         with open(output_path, 'wb') as f:
             pickle.dump(data, f)
-        print(f"\n[OK] Modelo guardado en: {output_path}")
+
+        print(f"\n[OK] Modelo guardado: {output_path}")
+        print(f"[OK] Total: {len(encodings)} rostros de {len(set(names))} personas")
         return True
+
     except Exception as e:
-        print(f"\n[ERROR] No se pudo guardar el modelo: {e}")
-        return False
-
-
-def show_summary(encodings, names):
-    """Muestra resumen del modelo entrenado"""
-    print("\n" + "="*70)
-    print("  RESUMEN DEL MODELO")
-    print("="*70)
-
-    # Contar muestras por persona
-    from collections import Counter
-    person_counts = Counter(names)
-
-    print(f"\n[INFO] Total de muestras: {len(encodings)}")
-    print(f"[INFO] Personas únicas: {len(person_counts)}\n")
-
-    print("Muestras por persona:")
-    for person, count in sorted(person_counts.items()):
-        bar = "█" * min(count, 50)
-        print(f"  {person:20s} : {count:3d} {bar}")
-
-    print("\n" + "="*70)
-
-
-def train_model(dataset_path: str = "dataset/raw",
-               output_path: str = "models/faces_model.pkl"):
-    """
-    Función principal de entrenamiento
-
-    Args:
-        dataset_path: Directorio con fotos de entrenamiento
-        output_path: Donde guardar el modelo
-
-    Returns:
-        True si el entrenamiento fue exitoso
-    """
-    print("\n" + "="*70)
-    print("  ENTRENAMIENTO DE MODELO DE RECONOCIMIENTO FACIAL")
-    print("="*70)
-
-    # Cargar datos
-    encodings, names = load_training_data(dataset_path)
-
-    if encodings is None or len(encodings) == 0:
-        print("\n[ERROR] No se pudieron cargar datos de entrenamiento")
-        return False
-
-    # Mostrar resumen
-    show_summary(encodings, names)
-
-    # Guardar modelo
-    print("\n[INFO] Guardando modelo...")
-    success = save_model(encodings, names, output_path)
-
-    if success:
-        print("\n" + "="*70)
-        print("  ✅ ENTRENAMIENTO COMPLETADO")
-        print("="*70)
-        print(f"\n[INFO] Modelo guardado en: {output_path}")
-        print(f"[INFO] Total de muestras: {len(encodings)}")
-        print(f"[INFO] Personas registradas: {len(set(names))}")
-        print("\n[INFO] Siguiente paso: Probar el reconocimiento")
-        print("  Ejecuta: python3 app.py")
-        print("="*70 + "\n")
-        return True
-    else:
+        print(f"[ERROR] No se pudo guardar el modelo: {e}")
         return False
 
 
 def main():
     """Función principal"""
-    import argparse
+    print("\n" + "="*70)
+    print("  ENTRENADOR DE RECONOCIMIENTO FACIAL - SIN DLIB")
+    print("="*70)
 
-    parser = argparse.ArgumentParser(
-        description="Entrena modelo de reconocimiento facial"
-    )
-    parser.add_argument(
-        "--dataset",
-        type=str,
-        default="dataset/raw",
-        help="Directorio con fotos de entrenamiento (default: dataset/raw)"
-    )
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="models/faces_model.pkl",
-        help="Archivo de salida del modelo (default: models/faces_model.pkl)"
-    )
+    # Cargar datos
+    encodings, names = load_training_data("dataset/raw")
 
-    args = parser.parse_args()
+    if encodings is None:
+        print("\n[ERROR] No se pudieron cargar los datos")
+        return False
 
-    # Verificar que face_recognition está instalado
-    try:
-        import face_recognition
-        print("[OK] face_recognition detectado")
-    except ImportError:
-        print("\n[ERROR] face_recognition no está instalado")
-        print("\nInstala con:")
-        print("  pip3 install face_recognition")
-        print("\nEn Raspberry Pi puede tardar varios minutos")
-        return 1
+    print(f"\n[OK] Datos cargados correctamente")
+    print(f"    - Total rostros: {len(encodings)}")
+    print(f"    - Personas únicas: {len(set(names))}")
 
     # Entrenar
-    success = train_model(
-        dataset_path=args.dataset,
-        output_path=args.output
-    )
+    success = train_model(encodings, names)
 
-    return 0 if success else 1
+    if success:
+        print("\n" + "="*70)
+        print("  ✓ ENTRENAMIENTO COMPLETADO")
+        print("="*70)
+        print("\n[INFO] Ya puedes usar el modelo en app.py")
+        print("[INFO] El modelo está optimizado sin dlib - instalación rápida!")
+        return True
+    else:
+        print("\n[ERROR] El entrenamiento falló")
+        return False
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    success = main()
+    sys.exit(0 if success else 1)

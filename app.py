@@ -3,6 +3,7 @@
 Servidor de Streaming - 30 FPS + Detección y Reconocimiento Facial
 Raspberry Pi 3 / Fedora con cámara USB
 Mejorado con reconocimiento facial y selección de cámara
+VERSIÓN SIN DLIB - Más rápida en instalación
 """
 
 from flask import Flask, render_template, Response, jsonify, request
@@ -16,13 +17,22 @@ import numpy as np
 import urllib.request
 import socket
 
-# Importar módulo de reconocimiento facial
+# Importar módulo de reconocimiento facial (versión sin dlib)
 try:
-    from core.face_recognition import FaceRecognizer
+    from core.face_recognition_lite import FaceRecognizerLite
     RECOGNITION_AVAILABLE = True
+    RECOGNIZER_TYPE = "lite"
+    print("[OK] Usando FaceRecognizerLite (sin dlib)")
 except ImportError:
-    RECOGNITION_AVAILABLE = False
-    print("[WARNING] Módulo de reconocimiento no disponible")
+    try:
+        from core.face_recognition import FaceRecognizer as FaceRecognizerLite
+        RECOGNITION_AVAILABLE = True
+        RECOGNIZER_TYPE = "original"
+        print("[WARNING] Usando FaceRecognizer original (con dlib)")
+    except ImportError:
+        RECOGNITION_AVAILABLE = False
+        FaceRecognizerLite = None
+        print("[WARNING] Módulo de reconocimiento no disponible")
 
 app = Flask(__name__)
 
@@ -632,7 +642,7 @@ def main():
     if RECOGNITION_AVAILABLE:
         print("\n[INFO] Intentando cargar modelo de reconocimiento facial...")
         try:
-            face_recognizer = FaceRecognizer(model_path="models/faces_model.pkl")
+            face_recognizer = FaceRecognizerLite(model_path="models/faces_model.pkl")
             if face_recognizer.known_face_encodings:
                 print(f"[OK] Modelo de reconocimiento cargado")
                 print(f"[INFO] Personas registradas: {', '.join(face_recognizer.get_registered_names())}")
@@ -645,7 +655,7 @@ def main():
             face_recognizer = None
     else:
         print("\n[WARNING] Módulo de reconocimiento no disponible")
-        print("[INFO] Instala con: pip3 install face_recognition")
+        print("[INFO] Instala con: pip3 install mediapipe scipy")
 
     # Iniciar captura
     capture_thread = threading.Thread(target=capture_frames, daemon=True)
