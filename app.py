@@ -673,12 +673,18 @@ def ble_open_door():
             'message': 'BLE no disponible'
         }), 400
 
+    if not ble_manager.connected:
+        return jsonify({
+            'success': False,
+            'message': 'BLE no conectado. Conecta primero con el botón de conexión'
+        }), 400
+
     print("[BLE] Comando manual: Abrir puerta")
     success = ble_manager.open_door_timed()
 
     return jsonify({
         'success': success,
-        'message': 'Puerta abierta' if success else 'Error al abrir puerta'
+        'message': 'Puerta abriendo...' if success else 'Error al abrir puerta'
     })
 
 @app.route('/ble/close_door', methods=['POST'])
@@ -692,12 +698,18 @@ def ble_close_door():
             'message': 'BLE no disponible'
         }), 400
 
+    if not ble_manager.connected:
+        return jsonify({
+            'success': False,
+            'message': 'BLE no conectado. Conecta primero con el botón de conexión'
+        }), 400
+
     print("[BLE] Comando manual: Cerrar puerta")
     success = ble_manager.close_door()
 
     return jsonify({
         'success': success,
-        'message': 'Puerta cerrada' if success else 'Error al cerrar puerta'
+        'message': 'Puerta cerrando...' if success else 'Error al cerrar puerta'
     })
 
 @app.route('/ble/add_user', methods=['POST'])

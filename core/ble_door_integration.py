@@ -274,8 +274,11 @@ class BLEDoorManager:
                 if not await self._connect_async():
                     return False
 
-            await self.client.write_gatt_char(CHAR_UUID, bytes([command]))
+            cmd_byte = bytes([command])
             cmd_name = "ABRIR" if command == CMD_OPEN else "CERRAR"
+            print(f"[BLE] Enviando: {cmd_name} (byte: {command} / 0x{command:02X})")
+            
+            await self.client.write_gatt_char(CHAR_UUID, cmd_byte)
             print(f"[BLE] ✓ Comando enviado: {cmd_name}")
             return True
 
@@ -311,7 +314,7 @@ class BLEDoorManager:
         """Cierra la puerta"""
         return self.send_command(CMD_CLOSE)
 
-    def open_door_timed(self, duration: Optional[float] = None):
+    def open_door_timed(self, duration: Optional[float] = None) -> bool:
         """Abre la puerta por un tiempo determinado, luego envía cerrar"""
         if duration is None:
             duration = self.door_open_duration
@@ -325,6 +328,7 @@ class BLEDoorManager:
 
         thread = threading.Thread(target=timed_sequence, daemon=True)
         thread.start()
+        return True  # Retornar True para indicar que se inició exitosamente
 
     def handle_recognized_face(self, name: str, confidence: float = 0.0, is_unknown: bool = False):
         """
