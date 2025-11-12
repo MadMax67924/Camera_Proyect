@@ -32,14 +32,14 @@ class FaceRecognizerLite:
     """
 
     def __init__(self, model_path: str = "models/faces_model.pkl",
-                 tolerance: float = 0.5,
-                 use_distance: str = "cosine"):
+                 tolerance: float = 5.0,
+                 use_distance: str = "euclidean"):
         """
         Inicializa el reconocedor facial
 
         Args:
             model_path: Ruta al archivo del modelo entrenado
-            tolerance: Umbral de similitud (menor = más estricto)
+            tolerance: Umbral de similitud para KNN (mayor = más permisivo)
             use_distance: "cosine" o "euclidean" para comparación
         """
         self.model_path = model_path
@@ -394,6 +394,9 @@ class FaceRecognizerLite:
                     distances, indices = self.knn_classifier.kneighbors(encoding_scaled)
                     best_distance = distances[0][0]  # Distancia del vecino más cercano
                     best_match_index = indices[0][0]
+                    
+                    # DEBUG: mostrar distancia
+                    print(f"[DEBUG] Distancia KNN: {best_distance:.4f} | Umbral: {self.tolerance} | Persona: {self.known_face_names[best_match_index]}")
                     
                     # Verificar umbral
                     if best_distance <= self.tolerance:
