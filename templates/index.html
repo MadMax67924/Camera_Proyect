@@ -535,13 +535,13 @@
 
         // ====== FUNCIONES ARDUINO ======
         
-        // Conectar Arduino
+        // Conectar Arduino (BLE)
         function connectArduino() {
             const btn = document.getElementById('arduinoConnectBtn');
             btn.disabled = true;
             btn.textContent = '⏳ Conectando...';
             
-            fetch('/arduino/connect', {
+            fetch('/ble/connect', {
                 method: 'POST'
             })
             .then(response => response.json())
@@ -573,12 +573,12 @@
             });
         }
 
-        // Activar/Desactivar control Arduino
+        // Activar/Desactivar control Arduino (BLE)
         function toggleArduino() {
             const btn = document.getElementById('arduinoToggleBtn');
             btn.disabled = true;
             
-            fetch('/arduino/toggle', {
+            fetch('/ble/toggle', {
                 method: 'POST'
             })
             .then(response => response.json())
@@ -612,7 +612,7 @@
             btn.disabled = true;
             btn.textContent = '⏳ Abriendo...';
             
-            fetch('/arduino/unlock', {
+            fetch('/ble/open_door', {
                 method: 'POST'
             })
             .then(response => response.json())
@@ -649,7 +649,7 @@
             btn.disabled = true;
             btn.textContent = '⏳ Cerrando...';
             
-            fetch('/arduino/lock', {
+            fetch('/ble/close_door', {
                 method: 'POST'
             })
             .then(response => response.json())
@@ -678,9 +678,9 @@
             });
         }
 
-        // Actualizar estado Arduino
+        // Actualizar estado Arduino (BLE)
         function updateArduinoStatus() {
-            fetch('/arduino/status', {
+            fetch('/ble/status', {
                 method: 'GET'
             })
             .then(response => response.json())
