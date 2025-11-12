@@ -15,6 +15,7 @@ from pathlib import Path
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import train_test_split, cross_val_score
 
 
 def extract_face_features(frame: np.ndarray, face_rect: tuple) -> np.ndarray:
@@ -190,35 +191,103 @@ def train_model(dataset_dir: str = "dataset/raw",
     if not X_train:
         print("[ERROR] No se extrajeron características de ninguna imagen")
         return False
-    
+
     print()
     print(f"[*] Total de muestras: {len(X_train)}")
     print(f"[*] Personas únicas: {len(set(y_train))}")
-    
+
+    # Dividir en train y validación para encontrar mejor k
+    X_train_split, X_val, y_train_split, y_val = train_test_split(
+        X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
+    )
+
+    print(f"[*] Entrenamiento: {len(X_train_split)} | Validación: {len(X_val)}")
+
     # Normalizar características
     print("[*] Normalizando características...")
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    
-    # Entrenar clasificador KNN
-    print("[*] Entrenando clasificador KNN (k=7)...")
-    knn = KNeighborsClassifier(n_neighbors=7, n_jobs=-1)
-    knn.fit(X_train_scaled, y_train)
+    X_train_scaled = scaler.fit_transform(X_train_split)
+    X_val_scaled = scaler.transform(X_val)
+
+    # Buscar mejor k
+    print("[*] Buscando mejor k (vecinos)...")
+    best_k = 5
+    best_cv_score = 0
+
+    for k in [3, 5, 7, 9]:
+        knn_temp = KNeighborsClassifier(n_neighbors=k, n_jobs=-1)
+        scores = cross_val_score(knn_temp, X_train_scaled, y_train_split, cv=3)
+        mean_score = scores.mean()
+        print(f"  k={k}: {mean_score*100:.2f}% accuracy")
+
+        if mean_score > best_cv_score:
+            best_cv_score = mean_score
+            best_k = k
+
+    print(f"[OK] Mejor k seleccionado: {best_k}")
+
+    # Entrenar clasificador KNN con mejor k
+    print(f"[*] Entrenando clasificador KNN (k={best_k})...")
+    knn = KNeighborsClassifier(n_neighbors=best_k, n_jobs=-1)
+    knn.fit(X_train_scaled, y_train_split)
+
+    # Evaluar en validación
+    val_predictions = knn.predict(X_val_scaled)
+    val_accuracy = np.mean(np.array(val_predictions) == np.array(y_val))
+    print(f"[OK] Precisión en validación: {val_accuracy*100:.1f}%")
+
+    # Encontrar mejor umbral
+    print("[*] Buscando mejor umbral de distancia...")
+    distances, indices = knn.kneighbors(X_val_scaled)
+
+    best_threshold = 60.0
+    best_accuracy = 0.0
+
+    for threshold in np.arange(30, 120, 5):
+        correct = 0
+        total = len(X_val)
+
+        for i, (dists, idxs) in enumerate(zip(distances, indices)):
+            best_dist = dists[0]
+            best_idx = idxs[0]
+
+            if best_dist <= threshold and best_idx < len(y_train_split):
+                predicted_name = y_train_split[best_idx]
+                if predicted_name == y_val[i]:
+                    correct += 1
+
+        accuracy = correct / total
+
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            best_threshold = threshold
+
+    print(f"[OK] Mejor umbral: {best_threshold:.1f} (precisión: {best_accuracy*100:.1f}%)")
+
+    # Re-entrenar con todos los datos usando mejor k
+    print(f"[*] Re-entrenando con todos los datos...")
+    X_all_scaled = scaler.fit_transform(X_train)
+    knn_final = KNeighborsClassifier(n_neighbors=best_k, n_jobs=-1)
+    knn_final.fit(X_all_scaled, y_train)
     
     # Guardar modelo
     print(f"[*] Guardando modelo en {output_model}...")
     model_data = {
-        'classifier': knn,
+        'classifier': knn_final,
         'scaler': scaler,
         'names': y_train,  # Guardar la lista completa con nombres repetidos (debe coincidir con índices del KNN)
-        'unique_names': list(set(y_train))  # También guardar las únicas para referencia
+        'unique_names': list(set(y_train)),  # También guardar las únicas para referencia
+        'best_threshold': best_threshold,  # Umbral óptimo encontrado
+        'validation_accuracy': val_accuracy,  # Precisión en validación
+        'feature_dim': len(X_train[0]),  # Dimensión de características
+        'n_samples': len(X_train)  # Total de muestras
     }
-    
+
     with open(output_model, 'wb') as f:
         pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
-    
+
     model_size_mb = os.path.getsize(output_model) / (1024*1024)
-    
+
     print()
     print("="*60)
     print("[✓] MODELO ENTRENADO EXITOSAMENTE")
@@ -226,6 +295,11 @@ def train_model(dataset_dir: str = "dataset/raw",
     print(f"[OK] Archivo: {output_model}")
     print(f"[OK] Tamaño: {model_size_mb:.2f} MB")
     print(f"[OK] Personas: {', '.join(sorted(set(y_train)))}")
+    print(f"[OK] Muestras: {len(X_train)}")
+    print(f"[OK] Features: {len(X_train[0])}")
+    print(f"[OK] Mejor k: {best_k}")
+    print(f"[OK] Umbral óptimo: {best_threshold:.1f}")
+    print(f"[OK] Precisión validación: {val_accuracy*100:.1f}%")
     print("="*60)
     print()
     

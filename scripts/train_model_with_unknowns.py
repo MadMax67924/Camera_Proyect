@@ -23,13 +23,64 @@ from sklearn.ensemble import IsolationForest
 import warnings
 warnings.filterwarnings('ignore')
 
-# Importar funciones del train_model_improved
-sys.path.insert(0, str(Path(__file__).parent))
-from train_model_improved import extract_face_features, find_best_threshold
+# Importar funciones de train_model_new
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from scripts.train_model_new import extract_face_features
+
+
+def find_best_threshold(X_val, y_val, knn, scaler, y_train):
+    """
+    Encuentra el mejor umbral de distancia para clasificación
+
+    Args:
+        X_val: Características de validación
+        y_val: Etiquetas de validación
+        knn: Clasificador KNN entrenado
+        scaler: Escalador entrenado
+        y_train: Etiquetas de entrenamiento (para mapping)
+
+    Returns:
+        Mejor umbral encontrado
+    """
+    print("\n[*] Buscando mejor umbral de distancia...")
+
+    X_val_scaled = scaler.transform(X_val)
+
+    # Obtener distancias para cada muestra de validación
+    distances, indices = knn.kneighbors(X_val_scaled)
+
+    # Probar diferentes umbrales
+    best_threshold = 60.0
+    best_accuracy = 0.0
+
+    for threshold in np.arange(30, 120, 5):
+        correct = 0
+        total = len(X_val)
+
+        for i, (dists, idxs) in enumerate(zip(distances, indices)):
+            best_dist = dists[0]
+            best_idx = idxs[0]
+
+            if best_dist <= threshold and best_idx < len(y_train):
+                predicted_name = y_train[best_idx]
+                if predicted_name == y_val[i]:
+                    correct += 1
+            elif best_dist > threshold:
+                # Marcar como desconocido - en validación esto es incorrecto
+                pass
+
+        accuracy = correct / total
+
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            best_threshold = threshold
+
+    print(f"[OK] Mejor umbral: {best_threshold:.1f} (precisión: {best_accuracy*100:.1f}%)")
+    return best_threshold
 
 
 def train_with_unknowns(known_dir: str = "dataset/raw",
-                        unknown_dir: str = "dataset/unknown",
+                        unknown_dir: str = None,
                         output_model: str = "models/faces_model_lite.pkl",
                         unknown_samples: int = 200):
     """
@@ -37,7 +88,7 @@ def train_with_unknowns(known_dir: str = "dataset/raw",
 
     Args:
         known_dir: Directorio con personas conocidas
-        unknown_dir: Directorio con personas desconocidas
+        unknown_dir: Directorio con personas desconocidas (opcional)
         output_model: Ruta del modelo de salida
         unknown_samples: Número de muestras de desconocidos a usar
     """
@@ -46,21 +97,47 @@ def train_with_unknowns(known_dir: str = "dataset/raw",
     print("ENTRENAMIENTO CON CONOCIDOS + DESCONOCIDOS")
     print("="*70)
     print(f"[*] Conocidos: {known_dir}")
-    print(f"[*] Desconocidos: {unknown_dir}")
+    print(f"[*] Desconocidos: {unknown_dir if unknown_dir else 'BUSCANDO AUTOMÁTICAMENTE...'}")
     print(f"[*] Modelo salida: {output_model}")
 
     # Verificar que existen ambos directorios
     known_path = Path(known_dir)
-    unknown_path = Path(unknown_dir)
 
     if not known_path.exists():
         print(f"[ERROR] No existe: {known_dir}")
         return False
 
+    # Si no especifica unknown_dir, buscar carpeta alternativa
+    if unknown_dir is None:
+        # Buscar carpetas alternativas para "desconocidos"
+        possible_paths = [
+            Path("dataset/unknown"),
+            Path("dataset/unknowns"),
+            Path("dataset/processed"),
+            Path("dataset/raw"),  # Alternativa: ignorar si el único dataset es raw
+        ]
+        
+        unknown_path = None
+        for path in possible_paths:
+            if path.exists() and path != known_path:
+                unknown_path = path
+                print(f"[OK] Dataset de desconocidos encontrado: {path}")
+                break
+        
+        if unknown_path is None:
+            print(f"[WARNING] No se encontró dataset de desconocidos")
+            print(f"[INFO] Opciones:")
+            print(f"      1. Crea carpeta: mkdir dataset/unknown")
+            print(f"      2. Copia imágenes de desconocidos aquí")
+            print(f"      3. O entrena sin desconocidos (menos preciso)")
+            unknown_path = Path("dataset/unknown")
+    else:
+        unknown_path = Path(unknown_dir)
+
+    # Crear directorio de desconocidos si no existe
     if not unknown_path.exists():
-        print(f"[ERROR] No existe: {unknown_dir}")
-        print(f"[INFO] Ejecuta: python3 scripts/setup_unknown_dataset.py lfw")
-        return False
+        print(f"[INFO] Creando directorio: {unknown_path}")
+        unknown_path.mkdir(parents=True, exist_ok=True)
 
     # Cargar Cascade Classifier
     cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
@@ -115,14 +192,11 @@ def train_with_unknowns(known_dir: str = "dataset/raw",
                 )
 
                 for (x, y, w, h) in faces:
-                    feature_list = extract_face_features(
-                        img, (x, y, w, h), augment=True  # Con aumento
-                    )
+                    features = extract_face_features(img, (x, y, w, h))
 
-                    for features in feature_list:
-                        if features is not None and len(features) > 0:
-                            X_known.append(features)
-                            y_known.append(person_name)
+                    if features is not None and len(features) > 0:
+                        X_known.append(features)
+                        y_known.append(person_name)
 
             except Exception as e:
                 continue
@@ -138,14 +212,24 @@ def train_with_unknowns(known_dir: str = "dataset/raw",
     print("PASO 2: PROCESANDO PERSONAS DESCONOCIDAS")
     print("="*70)
 
-    # Obtener imágenes de desconocidos
+    # Obtener imágenes de desconocidos (buscar recursivamente)
     unknown_images = list(unknown_path.glob("*.jpg")) + \
                     list(unknown_path.glob("*.png")) + \
                     list(unknown_path.glob("*.jpeg"))
+    
+    # Si no hay imágenes directas, buscar en subdirectorios
+    if not unknown_images and unknown_path.exists():
+        print(f"[*] Buscando en subdirectorios de {unknown_path}...")
+        unknown_images = list(unknown_path.glob("*/*.jpg")) + \
+                        list(unknown_path.glob("*/*.png")) + \
+                        list(unknown_path.glob("*/*.jpeg"))
 
     if not unknown_images:
-        print(f"[WARNING] No hay imágenes en {unknown_dir}")
-        print("[INFO] El detector de anomalías será menos preciso")
+        print(f"[WARNING] No hay imágenes en {unknown_path}")
+        print(f"[INFO] Alternativas:")
+        print(f"      - Copia imágenes de desconocidos a: {unknown_path}/")
+        print(f"      - O crea subcarpetas: {unknown_path}/unknown1/, {unknown_path}/unknown2/")
+        print(f"[INFO] El detector de anomalías será menos preciso SIN desconocidos")
     else:
         print(f"[INFO] Encontradas {len(unknown_images)} imágenes de desconocidos")
 
@@ -171,17 +255,16 @@ def train_with_unknowns(known_dir: str = "dataset/raw",
                 # Solo tomar el primer rostro detectado
                 if len(faces) > 0:
                     x, y, w, h = faces[0]
-                    feature_list = extract_face_features(
-                        img, (x, y, w, h), augment=False  # Sin aumento para desconocidos
-                    )
+                    features = extract_face_features(img, (x, y, w, h))
 
-                    if feature_list and len(feature_list) > 0:
-                        X_unknown.append(feature_list[0])
+                    if features is not None and len(features) > 0:
+                        X_unknown.append(features)
 
             except Exception as e:
                 continue
 
         print(f"\n[OK] Total desconocidos: {len(X_unknown)} muestras")
+
 
     # ============================================================
     # PASO 3: ENTRENAR MODELO
@@ -329,10 +412,15 @@ def train_with_unknowns(known_dir: str = "dataset/raw",
 def main():
     """Función principal"""
 
-    # Argumentos
     known = sys.argv[1] if len(sys.argv) > 1 else "dataset/raw"
-    unknown = sys.argv[2] if len(sys.argv) > 2 else "dataset/unknown"
+    unknown = sys.argv[2] if len(sys.argv) > 2 else None  # Auto-detectar
     output = sys.argv[3] if len(sys.argv) > 3 else "models/faces_model_lite.pkl"
+
+    print(f"\n[*] Parámetros:")
+    print(f"    - Conocidos: {known}")
+    print(f"    - Desconocidos: {unknown if unknown else 'AUTO-DETECTAR'}")
+    print(f"    - Salida: {output}")
+    print()
 
     success = train_with_unknowns(known, unknown, output)
     sys.exit(0 if success else 1)

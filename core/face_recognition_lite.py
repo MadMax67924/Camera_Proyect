@@ -170,41 +170,6 @@ class FaceRecognizerLite:
         
         return vec.flatten()
 
-    def _extract_lbp_features(self, gray_face: np.ndarray) -> np.ndarray:
-        """Extrae características LBP (Local Binary Patterns)"""
-        def get_pixel(img, center, x, y):
-            new_value = 0
-            try:
-                if img[x][y] >= center:
-                    new_value = 1
-            except:
-                pass
-            return new_value
-
-        lbp = np.zeros_like(gray_face)
-        h, w = gray_face.shape
-
-        for i in range(1, h-1):
-            for j in range(1, w-1):
-                center = gray_face[i, j]
-                val = 0
-                val |= get_pixel(gray_face, center, i-1, j-1) << 7
-                val |= get_pixel(gray_face, center, i-1, j) << 6
-                val |= get_pixel(gray_face, center, i-1, j+1) << 5
-                val |= get_pixel(gray_face, center, i, j+1) << 4
-                val |= get_pixel(gray_face, center, i+1, j+1) << 3
-                val |= get_pixel(gray_face, center, i+1, j) << 2
-                val |= get_pixel(gray_face, center, i+1, j-1) << 1
-                val |= get_pixel(gray_face, center, i, j-1) << 0
-                lbp[i, j] = val
-
-        # Histograma LBP
-        hist, _ = np.histogram(lbp.ravel(), bins=32, range=(0, 256))
-        hist = hist.astype("float")
-        hist /= (hist.sum() + 1e-6)
-
-        return hist
-
     def _extract_hog_features(self, gray_face: np.ndarray) -> np.ndarray:
         """Extrae características HOG (Histogram of Oriented Gradients)"""
         # Calcular gradientes
@@ -223,65 +188,56 @@ class FaceRecognizerLite:
 
     def extract_features(self, face_image: np.ndarray) -> np.ndarray:
         """
-        Extrae características MEJORADAS del rostro
-        Debe coincidir con extract_face_features en train_model_improved.py
-        330 características = LBP + HOG + Histograma + Bordes
+        Extrae características del rostro - DEBE COINCIDIR CON train_model_new.py
+        278 características = exactamente lo mismo que en entrenamiento
+        
+        Estructura:
+        - Píxeles 16x16: 256
+        - Estadísticas: 4 (mean, std, min, max)
+        - Histograma: 16 bins
+        - Bordes: 2 (mean, ratio)
+        Total: 256 + 4 + 16 + 2 = 278
         """
         if face_image is None or face_image.size == 0:
-            return np.zeros(330)
+            return np.zeros(278)
 
         try:
-            # Redimensionar a tamaño estándar
-            face_resized = cv2.resize(face_image, (64, 64))
-
-            # Convertir a escala de grises
-            if len(face_resized.shape) == 3:
-                face_gray = cv2.cvtColor(face_resized, cv2.COLOR_BGR2GRAY)
+            # Redimensionar a tamaño estándar (32x32 para ser consistente con training)
+            if len(face_image.shape) == 3 and face_image.shape[2] == 3:
+                # Convertir BGR a escala de grises
+                face_gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY)
             else:
-                face_gray = face_resized
-
-            # Ecualizar histograma para mejor contraste
-            face_gray = cv2.equalizeHist(face_gray)
+                face_gray = face_image
+            
+            face_resized = cv2.resize(face_gray, (32, 32))
 
             features = []
 
-            # 1. Píxeles aplanados reducidos (16x16 = 256)
-            face_small = cv2.resize(face_gray, (16, 16))
+            # 1. Píxeles aplanados (32→16x16 = 256)
+            face_small = cv2.resize(face_resized, (16, 16))
             features.extend(face_small.flatten().tolist())
 
-            # 2. Estadísticas básicas (6)
-            features.append(float(face_gray.mean()))
-            features.append(float(face_gray.std()))
-            features.append(float(np.min(face_gray)))
-            features.append(float(np.max(face_gray)))
-            features.append(float(np.median(face_gray)))
-            features.append(float(face_gray.var()))
+            # 2. Estadísticas básicas (4)
+            features.append(float(face_resized.mean()))
+            features.append(float(face_resized.std()))
+            features.append(float(np.min(face_resized)))
+            features.append(float(np.max(face_resized)))
 
-            # 3. Histograma global (16)
-            hist = cv2.calcHist([face_gray], [0], None, [16], [0, 256])
+            # 3. Histograma reducido (16 bins)
+            hist = cv2.calcHist([face_resized], [0], None, [16], [0, 256])
             features.extend(hist.flatten().tolist())
 
-            # 4. LBP - Patrones locales binarios (32)
-            lbp_hist = self._extract_lbp_features(face_gray)
-            features.extend(lbp_hist.tolist())
-
-            # 5. HOG - Histograma de gradientes orientados (16)
-            hog_hist = self._extract_hog_features(face_gray)
-            features.extend(hog_hist.tolist())
-
-            # 6. Características de bordes (4)
-            edges = cv2.Canny(face_gray, 100, 200)
+            # 4. Características de bordes (2)
+            edges = cv2.Canny(face_resized, 100, 200)
             features.append(float(edges.mean()))
-            features.append(float(edges.std()))
-            features.append(float(edges.sum() / (64 * 64)))
-            features.append(float(np.count_nonzero(edges) / (64 * 64)))
+            features.append(float(edges.sum() / (32 * 32)))
 
-            # Total: 256 + 6 + 16 + 32 + 16 + 4 = 330 características
+            # Total: 256 + 4 + 16 + 2 = 278 características
             return np.array(features, dtype=np.float32)
 
         except Exception as e:
             print(f"[WARNING] Error extrayendo características: {e}")
-            return np.zeros(330)
+            return np.zeros(278)
 
     def load_model(self) -> bool:
         """

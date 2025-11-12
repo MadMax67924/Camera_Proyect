@@ -7,6 +7,8 @@ numpy>=1.19.0
 Pillow>=8.0.0
 scikit-learn>=0.24.0
 scipy>=1.7.0
+tqdm>=4.50.0
+requests>=2.25.0
 
 # ============================================================================
 # CONTROL BLE DE PUERTA (OBLIGATORIO PARA TU PROYECTO)
@@ -17,7 +19,6 @@ bleak>=0.21.0
 # OPCIONALES (Mejoran rendimiento pero no son necesarias)
 # ============================================================================
 # mediapipe>=0.10.0        # Detección facial más rápida (recomendado)
-# tqdm>=4.50.0             # Barras de progreso en entrenamiento
 # RPi.GPIO>=0.7.1          # Solo si usas botones físicos en Raspberry Pi
 
 

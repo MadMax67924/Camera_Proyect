@@ -2,12 +2,14 @@
 """
 Script para preparar dataset de personas DESCONOCIDAS
 Usa LFW (Labeled Faces in the Wild) u otro dataset público
+Mejorado para manejar mejor los casos donde no existen desconocidos
 """
 
 import os
 import sys
 import shutil
 import random
+import urllib.request
 from pathlib import Path
 from tqdm import tqdm
 import tarfile
@@ -17,7 +19,6 @@ try:
     import requests
     HAS_REQUESTS = True
 except ImportError:
-    import urllib.request
     HAS_REQUESTS = False
 
 
@@ -268,18 +269,7 @@ def main():
     """Función principal"""
 
     if len(sys.argv) < 2:
-        print("\n" + "="*70)
-        print("SETUP DATASET DE DESCONOCIDOS")
-        print("="*70)
-        print("\nUso:")
-        print("  python3 scripts/setup_unknown_dataset.py <opcion>")
-        print("\nOpciones:")
-        print("  lfw                    - Descargar LFW (Labeled Faces in the Wild)")
-        print("  custom <directorio>    - Usar dataset personalizado")
-        print("\nEjemplos:")
-        print("  python3 scripts/setup_unknown_dataset.py lfw")
-        print("  python3 scripts/setup_unknown_dataset.py custom /path/to/images")
-        print("="*70 + "\n")
+        print_info()
         return
 
     option = sys.argv[1]
@@ -296,9 +286,74 @@ def main():
         input_dir = sys.argv[2]
         prepare_custom_unknowns(input_dir)
 
+    elif option == "check":
+        check_setup()
+
+    elif option == "help" or option == "-h" or option == "--help":
+        print_info()
+
     else:
         print(f"[ERROR] Opción desconocida: {option}")
-        print("Opciones válidas: lfw, custom")
+        print("Opciones válidas: lfw, custom, check, help")
+
+
+def print_info():
+    """Muestra información de uso"""
+    print("\n" + "="*70)
+    print("SETUP DATASET DE DESCONOCIDOS")
+    print("="*70)
+    print("\nUso:")
+    print("  python3 scripts/setup_unknown_dataset.py <opcion>")
+    print("\nOpciones:")
+    print("  check              - Ver estado actual del dataset")
+    print("  lfw                - Descargar LFW (Labeled Faces in the Wild)")
+    print("  custom <dir>       - Usar dataset personalizado")
+    print("  help               - Mostrar esta ayuda")
+    print("\nEjemplos:")
+    print("  python3 scripts/setup_unknown_dataset.py check")
+    print("  python3 scripts/setup_unknown_dataset.py lfw")
+    print("  python3 scripts/setup_unknown_dataset.py custom /path/to/images")
+    print("\nNOTA IMPORTANTE:")
+    print("  El script train_model_with_unknowns.py AUTO-DETECTA imágenes")
+    print("  de desconocidos en: dataset/unknown/")
+    print("="*70 + "\n")
+
+
+def check_setup():
+    """Verifica la configuración actual"""
+    print("\n" + "="*70)
+    print("ESTADO DEL DATASET DE DESCONOCIDOS")
+    print("="*70)
+    
+    unknown_path = Path("dataset/unknown")
+    
+    if not unknown_path.exists():
+        print(f"\n[*] Directorio {unknown_path} NO EXISTE")
+        print("    Será creado automáticamente al entrenar")
+        print("    Cópialas imágenes de desconocidos aquí")
+        return
+    
+    # Contar imágenes
+    images = list(unknown_path.glob("*.jpg")) + list(unknown_path.glob("*.png"))
+    subdirs = [d for d in unknown_path.iterdir() if d.is_dir()]
+    
+    print(f"\n[OK] Directorio {unknown_path} EXISTE")
+    
+    if subdirs:
+        print(f"\n[OK] Encontradas {len(subdirs)} subcarpetas:")
+        total_images = 0
+        for d in sorted(subdirs):
+            imgs = list(d.glob("*.jpg")) + list(d.glob("*.png"))
+            print(f"     - {d.name}/: {len(imgs)} imágenes")
+            total_images += len(imgs)
+        print(f"\n     TOTAL: {total_images} imágenes")
+    elif images:
+        print(f"\n[OK] Encontradas {len(images)} imágenes directas")
+    else:
+        print("\n[!] Directorio existe pero está VACÍO")
+        print("    Copia imágenes de desconocidos aquí")
+    
+    print("\n" + "="*70 + "\n")
 
 
 if __name__ == "__main__":
