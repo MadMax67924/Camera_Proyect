@@ -642,7 +642,7 @@ def main():
     if RECOGNITION_AVAILABLE:
         print("\n[INFO] Intentando cargar modelo de reconocimiento facial...")
         try:
-            face_recognizer = FaceRecognizerLite(model_path="models/faces_model.pkl")
+            face_recognizer = FaceRecognizerLite(model_path="models/faces_model_lite.pkl")
             if face_recognizer.known_face_encodings:
                 print(f"[OK] Modelo de reconocimiento cargado")
                 print(f"[INFO] Personas registradas: {', '.join(face_recognizer.get_registered_names())}")
