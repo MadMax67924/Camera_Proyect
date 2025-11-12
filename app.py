@@ -70,6 +70,15 @@ except ImportError:
     BLE_DOOR_AVAILABLE = False
     print("[INFO] Módulo BLE de puerta no disponible")
 
+# Importar módulo de control Arduino
+try:
+    from core.arduino_control import ArduinoController, init_arduino, get_arduino
+    ARDUINO_AVAILABLE = True
+    print("[OK] Módulo Arduino disponible")
+except ImportError:
+    ARDUINO_AVAILABLE = False
+    print("[INFO] Módulo Arduino no disponible")
+
 app = Flask(__name__)
 
 # Variables globales
@@ -91,6 +100,11 @@ last_recognized_faces = []  # Últimos rostros reconocidos
 ble_manager = None  # Gestor de puerta BLE
 ble_enabled = False  # Toggle para activar/desactivar control automático de puerta
 ble_connected = False  # Estado de conexión BLE
+
+# Variables Arduino
+arduino = None  # Controlador de Arduino
+arduino_enabled = False  # Toggle para activar/desactivar control de Arduino
+arduino_connected = False  # Estado de conexión Arduino
 
 def get_ip_address():
     """Obtiene la dirección IP local"""
@@ -972,6 +986,169 @@ def main():
     print("="*70 + "\n")
 
     app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
+
+
+# ============================================================================
+# ENDPOINTS PARA CONTROL DE ARDUINO
+# ============================================================================
+
+@app.route('/arduino/status', methods=['GET'])
+def arduino_status():
+    """Estado del controlador Arduino"""
+    return jsonify({
+        'arduino_available': ARDUINO_AVAILABLE,
+        'arduino_connected': arduino_connected,
+        'arduino_enabled': arduino_enabled
+    })
+
+
+@app.route('/arduino/connect', methods=['POST'])
+def arduino_connect():
+    """Conecta con Arduino"""
+    global arduino, arduino_connected, ARDUINO_AVAILABLE
+    
+    if not ARDUINO_AVAILABLE:
+        return jsonify({
+            'success': False,
+            'message': 'Módulo Arduino no disponible. Instala: pip3 install pyserial'
+        }), 400
+    
+    port = request.json.get('port', '/dev/ttyACM0')
+    baudrate = request.json.get('baudrate', 9600)
+    
+    try:
+        arduino = init_arduino(port, baudrate)
+        arduino_connected = arduino.is_connected()
+        
+        return jsonify({
+            'success': arduino_connected,
+            'message': f'{"Conectado" if arduino_connected else "No se pudo conectar"} a Arduino en {port}',
+            'connected': arduino_connected
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }), 500
+
+
+@app.route('/arduino/disconnect', methods=['POST'])
+def arduino_disconnect():
+    """Desconecta de Arduino"""
+    global arduino, arduino_connected
+    
+    if arduino and arduino_connected:
+        arduino.disconnect()
+        arduino_connected = False
+    
+    return jsonify({
+        'success': True,
+        'message': 'Desconectado de Arduino'
+    })
+
+
+@app.route('/arduino/toggle', methods=['POST'])
+def arduino_toggle():
+    """Alterna el control de Arduino"""
+    global arduino_enabled
+    
+    if not arduino_connected:
+        return jsonify({
+            'success': False,
+            'message': 'Arduino no está conectado'
+        }), 400
+    
+    arduino_enabled = not arduino_enabled
+    mode = "ACTIVADO" if arduino_enabled else "DESACTIVADO"
+    
+    print(f"[INFO] Control Arduino {mode}")
+    return jsonify({
+        'success': True,
+        'arduino_enabled': arduino_enabled,
+        'message': f'Control Arduino {mode}'
+    })
+
+
+@app.route('/arduino/unlock', methods=['POST'])
+def arduino_unlock():
+    """Abre la puerta por Arduino"""
+    global arduino
+    
+    if not arduino or not arduino_connected:
+        return jsonify({
+            'success': False,
+            'message': 'Arduino no está conectado'
+        }), 400
+    
+    success = arduino.unlock_door()
+    return jsonify({
+        'success': success,
+        'message': 'Puerta desbloqueada' if success else 'Error desbloqueando puerta'
+    })
+
+
+@app.route('/arduino/lock', methods=['POST'])
+def arduino_lock():
+    """Cierra la puerta por Arduino"""
+    global arduino
+    
+    if not arduino or not arduino_connected:
+        return jsonify({
+            'success': False,
+            'message': 'Arduino no está conectado'
+        }), 400
+    
+    success = arduino.lock_door()
+    return jsonify({
+        'success': success,
+        'message': 'Puerta bloqueada' if success else 'Error bloqueando puerta'
+    })
+
+
+@app.route('/arduino/led/<state>', methods=['POST'])
+def arduino_led(state):
+    """Controla el LED del Arduino"""
+    global arduino
+    
+    if not arduino or not arduino_connected:
+        return jsonify({
+            'success': False,
+            'message': 'Arduino no está conectado'
+        }), 400
+    
+    led_on = state.lower() in ['on', 'true', '1']
+    success = arduino.toggle_led(led_on)
+    
+    return jsonify({
+        'success': success,
+        'message': f'LED {"encendido" if led_on else "apagado"}' if success else 'Error controlando LED'
+    })
+
+
+@app.route('/arduino/command', methods=['POST'])
+def arduino_command():
+    """Envía comando personalizado a Arduino"""
+    global arduino
+    
+    if not arduino or not arduino_connected:
+        return jsonify({
+            'success': False,
+            'message': 'Arduino no está conectado'
+        }), 400
+    
+    command = request.json.get('command', '')
+    if not command:
+        return jsonify({
+            'success': False,
+            'message': 'Comando vacío'
+        }), 400
+    
+    success = arduino.custom_command(command)
+    return jsonify({
+        'success': success,
+        'message': f'Comando enviado: {command}' if success else 'Error enviando comando'
+    })
+
 
 if __name__ == '__main__':
     main()

@@ -67,7 +67,7 @@ class BLEDoorController:
             print("✓ Conectado exitosamente")
 
             # Verificar que el servicio existe
-            services = await self.client.get_services()
+            services = self.client.services
             if SERVICE_UUID.lower() in [s.uuid.lower() for s in services]:
                 print(f"✓ Servicio encontrado: {SERVICE_UUID}")
             else:

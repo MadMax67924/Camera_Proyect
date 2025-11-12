@@ -244,6 +244,20 @@
             <div id="recognizedList" style="margin-top: 10px; font-size: 1.1em;"></div>
         </div>
 
+        <!-- Control Arduino -->
+        <div style="margin-top: 30px; padding: 20px; background: #f0f7ff; border-radius: 8px; border-left: 4px solid #2196F3;">
+            <h3 style="margin-top: 0; color: #1565c0;">🔧 Control Arduino</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px;">
+                <button id="arduinoConnectBtn" onclick="connectArduino()" style="background: #4CAF50;">🔌 Conectar Arduino</button>
+                <button id="arduinoToggleBtn" onclick="toggleArduino()" style="background: #FF9800;" disabled>⚙️ Activar Control</button>
+                <button id="arduinoUnlockBtn" onclick="unlockDoor()" style="background: #2196F3;" disabled>🔓 Abrir Puerta</button>
+                <button id="arduinoLockBtn" onclick="lockDoor()" style="background: #f44336;" disabled>🔒 Cerrar Puerta</button>
+            </div>
+            <div id="arduinoStatus" style="margin-top: 10px; padding: 10px; background: white; border-radius: 5px; font-size: 0.9em;">
+                Estado: <span id="arduinoStatusText" style="color: #f44336; font-weight: bold;">No conectado</span>
+            </div>
+        </div>
+
         <!-- Información -->
         <div class="info-box">
             <strong>ℹ️ Información:</strong><br>
@@ -518,6 +532,173 @@
                 })
                 .catch(err => console.log('Error obteniendo status:', err));
         }
+
+        // ====== FUNCIONES ARDUINO ======
+        
+        // Conectar Arduino
+        function connectArduino() {
+            const btn = document.getElementById('arduinoConnectBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Conectando...';
+            
+            fetch('/arduino/connect', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                updateArduinoStatus();
+                if (data.success) {
+                    setTimeout(() => {
+                        btn.textContent = '✅ Arduino Conectado';
+                        btn.style.background = '#4CAF50';
+                        document.getElementById('arduinoToggleBtn').disabled = false;
+                    }, 500);
+                } else {
+                    btn.textContent = '❌ Error de Conexión';
+                    btn.style.background = '#f44336';
+                    alert('Error: ' + data.message);
+                    setTimeout(() => {
+                        btn.textContent = '🔌 Conectar Arduino';
+                        btn.style.background = '#4CAF50';
+                        btn.disabled = false;
+                    }, 2000);
+                }
+            })
+            .catch(err => {
+                console.error('Error connecting Arduino:', err);
+                btn.textContent = '🔌 Conectar Arduino';
+                btn.style.background = '#4CAF50';
+                btn.disabled = false;
+                alert('Error de conexión: ' + err);
+            });
+        }
+
+        // Activar/Desactivar control Arduino
+        function toggleArduino() {
+            const btn = document.getElementById('arduinoToggleBtn');
+            btn.disabled = true;
+            
+            fetch('/arduino/toggle', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.arduino_enabled) {
+                    btn.textContent = '✅ Control Activo';
+                    btn.style.background = '#4CAF50';
+                    document.getElementById('arduinoUnlockBtn').disabled = false;
+                    document.getElementById('arduinoLockBtn').disabled = false;
+                } else {
+                    btn.textContent = '⚙️ Activar Control';
+                    btn.style.background = '#FF9800';
+                    document.getElementById('arduinoUnlockBtn').disabled = true;
+                    document.getElementById('arduinoLockBtn').disabled = true;
+                }
+                updateArduinoStatus();
+                btn.disabled = false;
+            })
+            .catch(err => {
+                console.error('Error toggling Arduino:', err);
+                btn.disabled = false;
+                alert('Error: ' + err);
+            });
+        }
+
+        // Abrir puerta
+        function unlockDoor() {
+            if (!confirm('¿Abrir la puerta?')) return;
+            
+            const btn = document.getElementById('arduinoUnlockBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Abriendo...';
+            
+            fetch('/arduino/unlock', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    btn.textContent = '✅ ¡Puerta Abierta!';
+                    setTimeout(() => {
+                        btn.textContent = '🔓 Abrir Puerta';
+                        btn.disabled = false;
+                    }, 2000);
+                } else {
+                    btn.textContent = '❌ Error';
+                    setTimeout(() => {
+                        btn.textContent = '🔓 Abrir Puerta';
+                        btn.disabled = false;
+                    }, 2000);
+                    alert('Error: ' + data.message);
+                }
+                updateArduinoStatus();
+            })
+            .catch(err => {
+                console.error('Error unlocking:', err);
+                btn.textContent = '🔓 Abrir Puerta';
+                btn.disabled = false;
+                alert('Error: ' + err);
+            });
+        }
+
+        // Cerrar puerta
+        function lockDoor() {
+            if (!confirm('¿Cerrar la puerta?')) return;
+            
+            const btn = document.getElementById('arduinoLockBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Cerrando...';
+            
+            fetch('/arduino/lock', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    btn.textContent = '✅ ¡Puerta Cerrada!';
+                    setTimeout(() => {
+                        btn.textContent = '🔒 Cerrar Puerta';
+                        btn.disabled = false;
+                    }, 2000);
+                } else {
+                    btn.textContent = '❌ Error';
+                    setTimeout(() => {
+                        btn.textContent = '🔒 Cerrar Puerta';
+                        btn.disabled = false;
+                    }, 2000);
+                    alert('Error: ' + data.message);
+                }
+                updateArduinoStatus();
+            })
+            .catch(err => {
+                console.error('Error locking:', err);
+                btn.textContent = '🔒 Cerrar Puerta';
+                btn.disabled = false;
+                alert('Error: ' + err);
+            });
+        }
+
+        // Actualizar estado Arduino
+        function updateArduinoStatus() {
+            fetch('/arduino/status', {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                const statusText = document.getElementById('arduinoStatusText');
+                if (data.connected) {
+                    statusText.textContent = '✅ Conectado';
+                    statusText.style.color = '#4CAF50';
+                } else {
+                    statusText.textContent = '❌ No conectado';
+                    statusText.style.color = '#f44336';
+                }
+            })
+            .catch(err => console.log('Error getting Arduino status:', err));
+        }
+
+        // Actualizar estado Arduino cada 5 segundos
+        setInterval(updateArduinoStatus, 5000);
         
         // Actualizar estadísticas cada segundo
         setInterval(updateStats, 1000);

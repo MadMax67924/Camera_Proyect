@@ -207,7 +207,7 @@ class BLEDoorManager:
             print(f"[BLE] ✓ Conexión establecida")
             print(f"[BLE] Verificando servicios...")
 
-            services = await self.client.get_services()
+            services = self.client.services
             service_found = False
 
             for service in services:
