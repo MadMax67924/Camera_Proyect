@@ -55,6 +55,7 @@ class FaceRecognizerLite:
         self.knn_classifier = None
         self.scaler = None
         self.is_lite_model = False
+        self.anomaly_detector = None  # Detector de desconocidos (Isolation Forest)
 
         # Inicializar MediaPipe (opcional)
         if MEDIAPIPE_AVAILABLE:
@@ -169,18 +170,69 @@ class FaceRecognizerLite:
         
         return vec.flatten()
 
+    def _extract_lbp_features(self, gray_face: np.ndarray) -> np.ndarray:
+        """Extrae características LBP (Local Binary Patterns)"""
+        def get_pixel(img, center, x, y):
+            new_value = 0
+            try:
+                if img[x][y] >= center:
+                    new_value = 1
+            except:
+                pass
+            return new_value
+
+        lbp = np.zeros_like(gray_face)
+        h, w = gray_face.shape
+
+        for i in range(1, h-1):
+            for j in range(1, w-1):
+                center = gray_face[i, j]
+                val = 0
+                val |= get_pixel(gray_face, center, i-1, j-1) << 7
+                val |= get_pixel(gray_face, center, i-1, j) << 6
+                val |= get_pixel(gray_face, center, i-1, j+1) << 5
+                val |= get_pixel(gray_face, center, i, j+1) << 4
+                val |= get_pixel(gray_face, center, i+1, j+1) << 3
+                val |= get_pixel(gray_face, center, i+1, j) << 2
+                val |= get_pixel(gray_face, center, i+1, j-1) << 1
+                val |= get_pixel(gray_face, center, i, j-1) << 0
+                lbp[i, j] = val
+
+        # Histograma LBP
+        hist, _ = np.histogram(lbp.ravel(), bins=32, range=(0, 256))
+        hist = hist.astype("float")
+        hist /= (hist.sum() + 1e-6)
+
+        return hist
+
+    def _extract_hog_features(self, gray_face: np.ndarray) -> np.ndarray:
+        """Extrae características HOG (Histogram of Oriented Gradients)"""
+        # Calcular gradientes
+        gx = cv2.Sobel(gray_face, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(gray_face, cv2.CV_32F, 0, 1, ksize=3)
+
+        # Magnitud y ángulo
+        mag, ang = cv2.cartToPolar(gx, gy, angleInDegrees=True)
+
+        # Histograma de 16 bins
+        hist, _ = np.histogram(ang.ravel(), bins=16, range=(0, 360), weights=mag.ravel())
+        hist = hist.astype("float")
+        hist /= (hist.sum() + 1e-6)
+
+        return hist
+
     def extract_features(self, face_image: np.ndarray) -> np.ndarray:
         """
-        Extrae características del rostro - VERSIÓN OPTIMIZADA
-        Debe coincidir EXACTAMENTE con extract_face_features en train_model_new.py
-        278 características = más rápido que 4132 pero con buena precisión
+        Extrae características MEJORADAS del rostro
+        Debe coincidir con extract_face_features en train_model_improved.py
+        330 características = LBP + HOG + Histograma + Bordes
         """
         if face_image is None or face_image.size == 0:
-            return np.zeros(278)
+            return np.zeros(330)
 
         try:
-            # Redimensionar a 32x32 (más pequeño = más rápido)
-            face_resized = cv2.resize(face_image, (32, 32))
+            # Redimensionar a tamaño estándar
+            face_resized = cv2.resize(face_image, (64, 64))
 
             # Convertir a escala de grises
             if len(face_resized.shape) == 3:
@@ -188,34 +240,48 @@ class FaceRecognizerLite:
             else:
                 face_gray = face_resized
 
-            # Extraer características optimizadas (igual a train_model_new.py)
+            # Ecualizar histograma para mejor contraste
+            face_gray = cv2.equalizeHist(face_gray)
+
             features = []
 
-            # 1. Píxeles aplanados pequeños (16x16 = 256)
+            # 1. Píxeles aplanados reducidos (16x16 = 256)
             face_small = cv2.resize(face_gray, (16, 16))
             features.extend(face_small.flatten().tolist())
 
-            # 2. Estadísticas básicas (4)
+            # 2. Estadísticas básicas (6)
             features.append(float(face_gray.mean()))
             features.append(float(face_gray.std()))
             features.append(float(np.min(face_gray)))
             features.append(float(np.max(face_gray)))
+            features.append(float(np.median(face_gray)))
+            features.append(float(face_gray.var()))
 
-            # 3. Histograma reducido (16)
+            # 3. Histograma global (16)
             hist = cv2.calcHist([face_gray], [0], None, [16], [0, 256])
             features.extend(hist.flatten().tolist())
 
-            # 4. Características de bordes (2)
+            # 4. LBP - Patrones locales binarios (32)
+            lbp_hist = self._extract_lbp_features(face_gray)
+            features.extend(lbp_hist.tolist())
+
+            # 5. HOG - Histograma de gradientes orientados (16)
+            hog_hist = self._extract_hog_features(face_gray)
+            features.extend(hog_hist.tolist())
+
+            # 6. Características de bordes (4)
             edges = cv2.Canny(face_gray, 100, 200)
             features.append(float(edges.mean()))
-            features.append(float(edges.sum() / (32 * 32)))
+            features.append(float(edges.std()))
+            features.append(float(edges.sum() / (64 * 64)))
+            features.append(float(np.count_nonzero(edges) / (64 * 64)))
 
-            # Total: 256 + 4 + 16 + 2 = 278 características
+            # Total: 256 + 6 + 16 + 32 + 16 + 4 = 330 características
             return np.array(features, dtype=np.float32)
 
         except Exception as e:
             print(f"[WARNING] Error extrayendo características: {e}")
-            return np.zeros(278)
+            return np.zeros(330)
 
     def load_model(self) -> bool:
         """
@@ -241,8 +307,26 @@ class FaceRecognizerLite:
                 self.scaler = data['scaler']
                 self.known_face_names = data['names']
                 self.is_lite_model = True
-                print(f"[OK] Modelo KNN cargado: {len(self.known_face_names)} personas registradas")
+
+                # Cargar umbral óptimo si está disponible
+                if 'best_threshold' in data:
+                    self.tolerance = data['best_threshold']
+                    print(f"[OK] Umbral óptimo cargado: {self.tolerance:.1f}")
+
+                # Cargar detector de anomalías si está disponible
+                if 'anomaly_detector' in data:
+                    self.anomaly_detector = data['anomaly_detector']
+                    print(f"[OK] Detector de desconocidos cargado")
+                else:
+                    self.anomaly_detector = None
+
+                print(f"[OK] Modelo KNN cargado: {len(self.known_face_names)} muestras")
                 print(f"[OK] Personas: {', '.join(sorted(set(self.known_face_names)))}")
+
+                # Mostrar información de validación si está disponible
+                if 'validation_accuracy' in data:
+                    print(f"[OK] Precisión en validación: {data['validation_accuracy']*100:.1f}%")
+
                 return True
                 
             elif 'encodings' in data:
@@ -393,24 +477,40 @@ class FaceRecognizerLite:
                 if self.is_lite_model and self.knn_classifier is not None:
                     # Normalizar con scaler
                     encoding_scaled = self.scaler.transform([encoding])
-                    
-                    # Predicción y distancia
+
+                    # Verificar primero con detector de anomalías si está disponible
+                    is_anomaly = False
+                    if self.anomaly_detector is not None:
+                        anomaly_score = self.anomaly_detector.score_samples(encoding_scaled)[0]
+                        is_anomaly = self.anomaly_detector.predict(encoding_scaled)[0] == -1
+                        if is_anomaly:
+                            print(f"[DEBUG] Anomalía detectada (score: {anomaly_score:.4f}) - Probablemente desconocido")
+
+                    # Predicción y distancia con KNN
                     distances, indices = self.knn_classifier.kneighbors(encoding_scaled)
                     best_distance = distances[0][0]  # Distancia del vecino más cercano
                     best_match_index = indices[0][0]  # Índice en y_train
-                    
+
+                    # Calcular distancia media de los k vecinos (más robusto)
+                    mean_distance = np.mean(distances[0][:min(3, len(distances[0]))])
+
                     # Obtener nombre del mejor match
                     if best_match_index < len(self.known_face_names):
                         best_name = self.known_face_names[best_match_index]
-                        print(f"[DEBUG] Distancia KNN: {best_distance:.4f} | Umbral: {self.tolerance} | Persona: {best_name}")
-                        
-                        # Verificar umbral
-                        if best_distance <= self.tolerance:
+
+                        # Verificar umbral (usar distancia media o si es anomalía)
+                        if is_anomaly or mean_distance > self.tolerance * 1.5:
+                            name = "Desconocido"
+                            confidence = 0.0
+                            print(f"[DEBUG] Rechazado - Dist media: {mean_distance:.2f} | Anomalía: {is_anomaly}")
+                        elif best_distance <= self.tolerance:
                             name = best_name
                             confidence = self._distance_to_confidence(best_distance)
+                            print(f"[DEBUG] Reconocido: {name} | Dist: {best_distance:.2f} | Umbral: {self.tolerance:.1f}")
                         else:
                             name = "Desconocido"
                             confidence = 0.0
+                            print(f"[DEBUG] Fuera de umbral - Dist: {best_distance:.2f} | Umbral: {self.tolerance:.1f}")
                     else:
                         print(f"[ERROR] Índice {best_match_index} fuera de rango. Nombres disponibles: {len(self.known_face_names)}")
                         name = "Desconocido"
