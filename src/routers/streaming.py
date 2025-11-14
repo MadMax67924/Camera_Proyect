@@ -22,17 +22,18 @@ class CameraConfig:
         self.recognized_names = []
 
     def initialize_camera(self, camera_id=0):
-        """Inicializar cOmara"""
+        """Inicializar camara"""
         if self.camera is not None:
             self.camera.release()
 
         self.camera = cv2.VideoCapture(camera_id)
         self.current_camera_id = camera_id
 
-        # Configurar resoluciOn para mejor rendimiento
-        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        # Configurar resolucion para mejor rendimiento en Raspberry Pi
+        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 480)
+        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
         self.camera.set(cv2.CAP_PROP_FPS, 30)
+        self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         return self.camera.isOpened()
 
@@ -63,12 +64,12 @@ def detect_faces(frame):
     # Convertir a escala de grises para mejor rendimiento
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # Detectar rostros
+    # Detectar rostros con parametros optimizados para velocidad
     faces = camera_config.face_cascade.detectMultiScale(
         gray,
-        scaleFactor=1.1,
-        minNeighbors=5,
-        minSize=(30, 30),
+        scaleFactor=1.3,
+        minNeighbors=4,
+        minSize=(40, 40),
         flags=cv2.CASCADE_SCALE_IMAGE
     )
 
@@ -88,32 +89,17 @@ def detect_faces(frame):
     return frame, len(faces)
 
 def add_overlay_info(frame, fps, faces_detected=0):
-    """Agregar informaciOn sobre el frame"""
-    # Fondo semi-transparente para el texto
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (5, 5), (300, 90), (0, 0, 0), -1)
-    frame = cv2.addWeighted(frame, 0.7, overlay, 0.3, 0)
+    """Agregar informacion sobre el frame de manera eficiente"""
+    # Usar rectangulo simple sin transparencia para mejor rendimiento
+    cv2.rectangle(frame, (5, 5), (200, 70), (0, 0, 0), -1)
 
-    # InformaciOn
-    info_text = [
-        f'FPS: {fps:.1f}',
-        f'Deteccion: {"ON" if camera_config.detection_enabled else "OFF"}',
-        f'Rostros: {faces_detected}' if camera_config.detection_enabled else ''
-    ]
+    # Informacion minima para reducir overhead
+    cv2.putText(frame, f'FPS: {fps:.0f}', (10, 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
-    y_offset = 25
-    for text in info_text:
-        if text:
-            cv2.putText(
-                frame,
-                text,
-                (10, y_offset),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 0),
-                2
-            )
-            y_offset += 25
+    if camera_config.detection_enabled:
+        cv2.putText(frame, f'Rostros: {faces_detected}', (10, 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
     return frame
 
@@ -163,11 +149,11 @@ def generate_frames():
         if camera_config.detection_enabled:
             frame, faces_detected = detect_faces(frame)
 
-        # Agregar informaciOn overlay
+        # Agregar informacion overlay
         frame = add_overlay_info(frame, camera_config.fps, faces_detected)
 
-        # Codificar frame a JPEG
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        # Codificar frame a JPEG con calidad optimizada para streaming
+        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
 
         # Yield frame en formato multipart
         yield (b'--frame\r\n'
