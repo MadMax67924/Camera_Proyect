@@ -39,7 +39,7 @@ if [ -n "$MAIN_IP" ]; then
     echo "═══════════════════════════════════════════════════════════"
     echo "✨ URL para compartir en la red local:"
     echo ""
-    echo "   🔗 http://$MAIN_IP:8000"
+    echo "   🔗 http://$MAIN_IP:5000"
     echo ""
     echo "═══════════════════════════════════════════════════════════"
     echo ""
