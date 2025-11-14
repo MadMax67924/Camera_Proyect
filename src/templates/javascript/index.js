@@ -120,21 +120,21 @@ async function toggleDetection() {
 
         if (data.detection_enabled) {
             updateButtonState(toggleDetectionBtn, {
-                text: 'Desactivar Detecci�n',
+                text: 'Desactivar Detección',
                 color: '#ef4444'
             });
-            detectionInfo.textContent = 'Detecci�n facial ACTIVADA - 25-30 FPS';
-            statusText.textContent = 'Detecci�n Facial Activa';
+            detectionInfo.textContent = 'Detección facial ACTIVADA - 25-30 FPS';
+            statusText.textContent = 'Detección Facial Activa';
         } else {
             updateButtonState(toggleDetectionBtn, {
-                text: 'Activar Detecci�n',
+                text: 'Activar Detección',
                 color: '#6366f1'
             });
-            detectionInfo.textContent = 'Detecci�n facial DESACTIVADA - M�ximo FPS (60+)';
-            statusText.textContent = 'Modo R�pido - Sin Detecci�n';
+            detectionInfo.textContent = 'Detección facial DESACTIVADA - Máximo FPS (60+)';
+            statusText.textContent = 'Modo Rápido - Sin Detección';
         }
     } catch (err) {
-        alert('Error al cambiar modo de detecci�n');
+        alert('Error al cambiar modo de detección');
     }
 }
 
@@ -187,12 +187,12 @@ async function showCameraSelector() {
 
         cameraSelector.classList.toggle('hidden');
     } catch (err) {
-        alert('Error al obtener lista de c�maras');
+        alert('Error al obtener lista de cámaras');
     }
 }
 
 async function changeCamera(cameraId) {
-    if (!confirm(`�Cambiar a /dev/video${cameraId}?`)) return;
+    if (!confirm(`¿Cambiar a /dev/video${cameraId}?`)) return;
 
     try {
         const data = await fetchJSON(`/set_camera/${cameraId}`, { method: 'POST' });
@@ -205,7 +205,7 @@ async function changeCamera(cameraId) {
             alert(data.message);
         }
     } catch (err) {
-        alert('Error al cambiar c�mara');
+        alert('Error al cambiar cámara');
     }
 }
 
@@ -236,7 +236,7 @@ async function connectArduino() {
         }
     } catch (err) {
         updateButtonState(arduinoConnectBtn, {
-            text: 'Error de Conexi�n',
+            text: 'Error de Conexión',
             color: '#ef4444'
         });
         alert(`Error: ${err.message}`);
@@ -278,7 +278,7 @@ async function toggleArduino() {
 }
 
 async function unlockDoor() {
-    if (!confirm('�Abrir la puerta?')) return;
+    if (!confirm('¿Abrir la puerta?')) return;
 
     const { arduinoUnlockBtn } = AppState.elements;
 
@@ -310,7 +310,7 @@ async function unlockDoor() {
 }
 
 async function lockDoor() {
-    if (!confirm('�Cerrar la puerta?')) return;
+    if (!confirm('¿Cerrar la puerta?')) return;
 
     const { arduinoLockBtn } = AppState.elements;
 
@@ -323,7 +323,7 @@ async function lockDoor() {
         const data = await fetchJSON('/ble/close_door', { method: 'POST' });
 
         if (data.success) {
-            updateButtonState(arduinoLockBtn, { text: '�Puerta Cerrada!' });
+            updateButtonState(arduinoLockBtn, { text: '¡Puerta Cerrada!' });
             setTimeout(() => {
                 updateButtonState(arduinoLockBtn, {
                     text: 'Cerrar Puerta',
@@ -383,16 +383,16 @@ async function updateStats() {
         if (data.detection_enabled !== undefined) {
             if (data.detection_enabled) {
                 updateButtonState(toggleDetectionBtn, {
-                    text: 'Desactivar Detecci�n',
+                    text: 'Desactivar Detección',
                     color: '#ef4444'
                 });
-                detectionInfo.textContent = 'Detecci�n facial ACTIVADA - 25-30 FPS';
+                detectionInfo.textContent = 'Detección facial ACTIVADA - 25-30 FPS';
             } else {
                 updateButtonState(toggleDetectionBtn, {
-                    text: 'Activar Detecci�n',
+                    text: 'Activar Detección',
                     color: '#6366f1'
                 });
-                detectionInfo.textContent = 'Detecci�n facial DESACTIVADA - M�ximo FPS (60+)';
+                detectionInfo.textContent = 'Detección facial DESACTIVADA - Máximo FPS (60+)';
             }
         }
 
