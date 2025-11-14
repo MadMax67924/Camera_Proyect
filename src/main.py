@@ -15,18 +15,43 @@ from src.routers import streaming, arduino
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    import socket
+
+    print("\n" + "="*60)
     print("🚀 Iniciando aplicación...")
+    print("="*60)
+
     streaming.startup()
     print("📹 Cámara inicializada")
+
+    # Obtener IP local
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except:
+        local_ip = "No disponible"
+
+    print("\n" + "="*60)
     print("✅ Aplicación lista")
+    print("="*60)
+    print("\n📱 URLs de acceso:\n")
+    print("   Desde este equipo:")
+    print("   └─ http://localhost:8000")
+    print("   └─ http://127.0.0.1:8000")
+    print("\n   Desde otros equipos en la red:")
+    print(f"   └─ http://{local_ip}:8000")
+    print("\n💡 Comparte la URL con otros dispositivos en la misma red")
+    print("="*60 + "\n")
 
     yield
 
     # Shutdown
-    print("🛑 Cerrando aplicación...")
+    print("\n🛑 Cerrando aplicación...")
     streaming.shutdown()
     arduino.shutdown()
-    print("✅ Recursos liberados")
+    print("✅ Recursos liberados\n")
 
 
 app = FastAPI(

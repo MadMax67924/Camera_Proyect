@@ -3,6 +3,12 @@
 # Script de inicio para Raspberry Pi Camera Stream
 # Compatible con Raspberry Pi y Fedora Linux
 
+# Hacer ejecutables todos los scripts
+chmod +x "$0" 2>/dev/null
+if [ -f "show_ip.sh" ]; then
+    chmod +x show_ip.sh 2>/dev/null
+fi
+
 echo "🚀 Iniciando Raspberry Pi Camera Stream..."
 echo ""
 
@@ -69,6 +75,19 @@ fi
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${GREEN}🎥 Iniciando servidor...${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo -e "${YELLOW}📱 URLs de acceso:${NC}"
+echo ""
+echo -e "${GREEN}   Desde este equipo:${NC}"
+echo -e "   └─ http://localhost:8000"
+echo -e "   └─ http://127.0.0.1:8000"
+echo ""
+echo -e "${GREEN}   Desde otros equipos en la red:${NC}"
+echo -e "   └─ http://${IP_ADDR}:8000"
+echo ""
+echo -e "${YELLOW}💡 Tip: Comparte la URL http://${IP_ADDR}:8000 con otros dispositivos${NC}"
+echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 

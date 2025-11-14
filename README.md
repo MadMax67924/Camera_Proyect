@@ -9,11 +9,11 @@ Sistema de streaming de cámara en tiempo real con detección facial usando Haar
 ./run.sh
 ```
 
-Accede a: http://localhost:8000
+Accede a: http://localhost:5000
 
 ## 📋 Requisitos
 
-- Python 3.8+
+- Python 3.10+
 - Cámara USB o integrada
 - OpenCV con Haar Cascade
 
