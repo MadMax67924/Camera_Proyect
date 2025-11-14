@@ -56,11 +56,11 @@ else
 fi
 
 echo -e "${GREEN}   IP Local: $IP_ADDR${NC}"
-echo -e "${GREEN}   Puerto: 8000${NC}"
+echo -e "${GREEN}   Puerto: 5000${NC}"
 echo ""
 echo -e "${YELLOW}📱 Accede desde:${NC}"
-echo -e "   Local:  http://localhost:8000"
-echo -e "   Red:    http://$IP_ADDR:8000"
+echo -e "   Local:  http://localhost:5000"
+echo -e "   Red:    http://$IP_ADDR:5000"
 echo ""
 
 # Verificar si hay una cámara disponible
@@ -80,17 +80,17 @@ echo ""
 echo -e "${YELLOW}📱 URLs de acceso:${NC}"
 echo ""
 echo -e "${GREEN}   Desde este equipo:${NC}"
-echo -e "   └─ http://localhost:8000"
-echo -e "   └─ http://127.0.0.1:8000"
+echo -e "   └─ http://localhost:5000"
+echo -e "   └─ http://127.0.0.1:5000"
 echo ""
 echo -e "${GREEN}   Desde otros equipos en la red:${NC}"
-echo -e "   └─ http://${IP_ADDR}:8000"
+echo -e "   └─ http://${IP_ADDR}:5000"
 echo ""
-echo -e "${YELLOW}💡 Tip: Comparte la URL http://${IP_ADDR}:8000 con otros dispositivos${NC}"
+echo -e "${YELLOW}💡 Tip: Comparte la URL http://${IP_ADDR}:5000 con otros dispositivos${NC}"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
 # Iniciar servidor con uvicorn
 # Usar --reload solo en desarrollo
-uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn src.main:app --host 0.0.0.0 --port 5000 --reload
