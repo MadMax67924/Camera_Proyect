@@ -4,7 +4,7 @@ from fastapi import APIRouter, Response
 from fastapi.responses import StreamingResponse, JSONResponse
 import numpy as np
 
-router = APIRouter()
+streaming_router = APIRouter()
 
 # ==================== CONFIGURACION ====================
 class CameraConfig:
@@ -103,6 +103,7 @@ def add_overlay_info(frame, fps, faces_detected=0):
 
     return frame
 
+
 def generate_frames():
     """Generador de frames para streaming"""
     while True:
@@ -161,7 +162,8 @@ def generate_frames():
 
 # ==================== RUTAS ====================
 
-@router.get("/video_feed")
+
+@streaming_router.get("/video_feed")
 async def video_feed():
     """Stream de video en tiempo real"""
     return StreamingResponse(
@@ -169,7 +171,8 @@ async def video_feed():
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
-@router.get("/status")
+
+@streaming_router.get("/status")
 async def get_status():
     """Obtener estado del sistema"""
     uptime = int(time.time() - camera_config.start_time)
@@ -186,7 +189,8 @@ async def get_status():
         "camera_id": camera_config.current_camera_id
     })
 
-@router.post("/toggle_detection")
+
+@streaming_router.post("/toggle_detection")
 async def toggle_detection():
     """Activar/desactivar detecciOn facial"""
     camera_config.detection_enabled = not camera_config.detection_enabled
@@ -207,7 +211,8 @@ async def toggle_detection():
         "detection_enabled": camera_config.detection_enabled
     })
 
-@router.post("/toggle_recognition")
+
+@streaming_router.post("/toggle_recognition")
 async def toggle_recognition():
     """Activar/desactivar reconocimiento facial (no disponible con Haar Cascade)"""
     return JSONResponse({
@@ -216,7 +221,8 @@ async def toggle_recognition():
         "recognition_enabled": False
     }, status_code=400)
 
-@router.get("/cameras")
+
+@streaming_router.get("/cameras")
 async def list_cameras():
     """Listar cOmaras disponibles"""
     available_cameras = []
@@ -233,23 +239,25 @@ async def list_cameras():
         "current": camera_config.current_camera_id
     })
 
-@router.post("/set_camera/{camera_id}")
+
+@streaming_router.post("/set_camera/{camera_id}")
 async def set_camera(camera_id: int):
-    """Cambiar cOmara activa"""
+    """Cambiar cámara activa"""
     if camera_config.initialize_camera(camera_id):
         return JSONResponse({
             "success": True,
-            "message": f"Cambiado a cOmara /dev/video{camera_id}",
+            "message": f"Cambiado a cámara /dev/video{camera_id}",
             "camera_id": camera_id
         })
     else:
         return JSONResponse({
             "success": False,
-            "message": f"No se pudo acceder a la cOmara /dev/video{camera_id}",
+            "message": f"No se pudo acceder a la cámara /dev/video{camera_id}",
             "camera_id": camera_config.current_camera_id
         })
 
-@router.get("/stats")
+
+@streaming_router.get("/stats")
 async def stats_page():
     """POgina de estadOsticas detalladas"""
     uptime = int(time.time() - camera_config.start_time)
@@ -296,7 +304,7 @@ async def stats_page():
             <h1>=O EstadOsticas del Sistema</h1>
             <div class="stat">
                 <span class="stat-label">FPS:</span>
-                <span class="stat-value">{camera_config.fps:.1f}</span>
+                <span class="stat-value">{camera_config.fps:.2f}</span>
             </div>
             <div class="stat">
                 <span class="stat-label">Frames Totales:</span>
@@ -325,11 +333,13 @@ async def stats_page():
 
     return Response(content=stats_html, media_type="text/html")
 
+
 # ==================== INICIALIZACION ====================
 def startup():
     """Inicializar al arranque"""
     camera_config.initialize_camera(0)
     camera_config.load_haar_cascade()
+
 
 def shutdown():
     """Limpiar recursos al cerrar"""

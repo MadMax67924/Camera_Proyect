@@ -38,10 +38,10 @@ async def lifespan(app: FastAPI):
     print("="*60)
     print("\n📱 URLs de acceso:\n")
     print("   Desde este equipo:")
-    print("   └─ http://localhost:8000")
-    print("   └─ http://127.0.0.1:8000")
+    print("   └─ http://localhost:5000")
+    print("   └─ http://127.0.0.1:5000")
     print("\n   Desde otros equipos en la red:")
-    print(f"   └─ http://{local_ip}:8000")
+    print(f"   └─ http://{local_ip}:5000")
     print("\n💡 Comparte la URL con otros dispositivos en la misma red")
     print("="*60 + "\n")
 
@@ -76,7 +76,7 @@ app.add_middleware(
 )
 
 # Incluir routers
-app.include_router(streaming.router)
+app.include_router(streaming.streaming_router)
 app.include_router(arduino.router)
 
 
