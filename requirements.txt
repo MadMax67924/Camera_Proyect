@@ -1,6 +1,7 @@
+bleak
 uvicorn
 fastapi
-opencv-python
+opencv-contrib-python
 numpy
 scikit-learn
 scipy

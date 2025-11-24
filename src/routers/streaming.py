@@ -1,5 +1,6 @@
 import cv2
 import time
+from pathlib import Path
 from fastapi import APIRouter, Response
 from fastapi.responses import StreamingResponse, JSONResponse
 import numpy as np
@@ -13,13 +14,19 @@ class CameraConfig:
         self.current_camera_id = 0
         self.detection_enabled = False
         self.recognition_enabled = False
-        self.face_cascade = None
+        self.face_detector = None  # YuNet
         self.total_frames = 0
         self.start_time = time.time()
         self.fps = 0
         self.last_fps_time = time.time()
         self.frame_count = 0
         self.recognized_names = []
+        self.model_path = (
+            Path(__file__).resolve().parent.parent
+            / "scripts"
+            / "Yunet+SFace"
+            / "face_detection_yunet_2023mar.onnx"
+        )
 
     def initialize_camera(self, camera_id=0):
         """Inicializar camara"""
@@ -37,19 +44,28 @@ class CameraConfig:
 
         return self.camera.isOpened()
 
-    def load_haar_cascade(self):
-        """Cargar clasificador Haar Cascade para detecciOn facial"""
-        try:
-            # Intentar cargar desde la instalaciOn de OpenCV
-            self.face_cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            )
-            if self.face_cascade.empty():
-                print("Error: No se pudo cargar Haar Cascade")
-                return False
+    def load_yunet(self, input_size=(480, 360)):
+        """Cargar detector YuNet."""
+        if self.face_detector is not None:
             return True
+
+        if not self.model_path.exists():
+            print(f"Error: modelo YuNet no encontrado en {self.model_path}")
+            return False
+
+        try:
+            self.face_detector = cv2.FaceDetectorYN.create(
+                model=self.model_path.as_posix(),
+                config="",
+                input_size=input_size,
+                score_threshold=0.9,
+                nms_threshold=0.3,
+                top_k=5000
+            )
+            return self.face_detector is not None
         except Exception as e:
-            print(f"Error cargando Haar Cascade: {e}")
+            print(f"Error cargando YuNet: {e}")
+            self.face_detector = None
             return False
 
 # Instancia global
@@ -57,36 +73,38 @@ camera_config = CameraConfig()
 
 # ==================== FUNCIONES DE PROCESAMIENTO ====================
 def detect_faces(frame):
-    """Detectar rostros usando Haar Cascade"""
-    if camera_config.face_cascade is None:
+    """Detectar rostros usando YuNet."""
+    if camera_config.face_detector is None:
         return frame, 0
 
-    # Convertir a escala de grises para mejor rendimiento
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    h, w = frame.shape[:2]
+    try:
+        camera_config.face_detector.setInputSize((w, h))
+        _, faces = camera_config.face_detector.detect(frame)
+    except Exception:
+        return frame, 0
 
-    # Detectar rostros con parametros optimizados para velocidad
-    faces = camera_config.face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.3,
-        minNeighbors=4,
-        minSize=(40, 40),
-        flags=cv2.CASCADE_SCALE_IMAGE
-    )
+    if faces is None:
+        return frame, 0
 
-    # Dibujar rectOngulos alrededor de los rostros
-    for (x, y, w, h) in faces:
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+    faces_detected = 0
+    for face in faces:
+        x, y, fw, fh = face[:4].astype(int)
+        score = float(face[4])
+        cv2.rectangle(frame, (x, y), (x + fw, y + fh), (0, 255, 0), 2)
         cv2.putText(
             frame,
-            'Rostro detectado',
-            (x, y-10),
+            f"Face {score:.2f}",
+            (x, max(0, y - 10)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
             (0, 255, 0),
-            2
+            1
         )
 
-    return frame, len(faces)
+        faces_detected += 1
+
+    return frame, faces_detected
 
 def add_overlay_info(frame, fps, faces_detected=0):
     """Agregar informacion sobre el frame de manera eficiente"""
@@ -183,7 +201,7 @@ async def get_status():
         "uptime": uptime,
         "detection_enabled": camera_config.detection_enabled,
         "recognition_enabled": camera_config.recognition_enabled,
-        "recognition_available": False,  # Haar Cascade no hace reconocimiento
+        "recognition_available": False,  # YuNet solo detecta
         "model_loaded": False,
         "recognized_names": camera_config.recognized_names,
         "camera_id": camera_config.current_camera_id
@@ -195,13 +213,13 @@ async def toggle_detection():
     """Activar/desactivar detecciOn facial"""
     camera_config.detection_enabled = not camera_config.detection_enabled
 
-    # Cargar Haar Cascade si se activa por primera vez
-    if camera_config.detection_enabled and camera_config.face_cascade is None:
-        if not camera_config.load_haar_cascade():
+    # Cargar YuNet si se activa por primera vez
+    if camera_config.detection_enabled and camera_config.face_detector is None:
+        if not camera_config.load_yunet():
             camera_config.detection_enabled = False
             return JSONResponse({
                 "success": False,
-                "message": "Error al cargar Haar Cascade",
+                "message": "Error al cargar YuNet",
                 "detection_enabled": False
             })
 
@@ -324,7 +342,7 @@ async def stats_page():
             </div>
             <div class="stat">
                 <span class="stat-label">MOtodo:</span>
-                <span class="stat-value">Haar Cascade</span>
+                <span class="stat-value">YuNet</span>
             </div>
         </div>
     </body>
@@ -338,7 +356,8 @@ async def stats_page():
 def startup():
     """Inicializar al arranque"""
     camera_config.initialize_camera(0)
-    camera_config.load_haar_cascade()
+    # Cargar detector YuNet al inicio para evitar latencia en el primer uso
+    camera_config.load_yunet((480, 360))
 
 
 def shutdown():
