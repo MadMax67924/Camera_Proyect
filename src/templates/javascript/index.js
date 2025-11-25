@@ -30,6 +30,9 @@ function initElements() {
         arduinoLockBtn: document.getElementById('arduinoLockBtn'),
         arduinoStatusText: document.getElementById('arduinoStatusText')
     };
+    // Allowed list elements
+    AppState.elements.allowedInput = document.getElementById('allowedInput');
+    AppState.elements.allowedList = document.getElementById('allowedList');
 }
 
 // ==================== VIDEO STREAM HANDLERS ====================
@@ -358,6 +361,55 @@ async function updateArduinoStatus() {
     }
 }
 
+// ==================== ALLOWED USERS CRUD ====================
+async function loadAllowed() {
+    try {
+        const data = await fetchJSON('/allowed');
+        const { allowedList } = AppState.elements;
+        allowedList.innerHTML = '';
+        data.allowed.forEach(name => {
+            const li = document.createElement('li');
+            li.className = 'flex items-center justify-between px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-lg';
+            li.innerHTML = `<span class="text-sm">${name}</span>`;
+            const btn = document.createElement('button');
+            btn.className = 'text-red-500 hover:text-red-600 text-sm';
+            btn.textContent = 'Eliminar';
+            btn.onclick = () => removeAllowed(name);
+            li.appendChild(btn);
+            allowedList.appendChild(li);
+        });
+    } catch (err) {
+        console.error('Error cargando lista permitidos:', err);
+    }
+}
+
+async function addAllowed() {
+    const { allowedInput } = AppState.elements;
+    const name = (allowedInput.value || '').trim();
+    if (!name) return;
+    try {
+        await fetchJSON('/allowed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        allowedInput.value = '';
+        loadAllowed();
+    } catch (err) {
+        alert(err.message || 'Error al agregar permitido');
+    }
+}
+
+async function removeAllowed(name) {
+    if (!confirm(`¿Quitar a "${name}" de permitidos?`)) return;
+    try {
+        await fetchJSON(`/allowed/${encodeURIComponent(name)}`, { method: 'DELETE' });
+        loadAllowed();
+    } catch (err) {
+        alert(err.message || 'Error al eliminar permitido');
+    }
+}
+
 // ==================== STATUS UPDATES ====================
 async function updateStats() {
     const { uptimeValue, frameValue, fpsValue } = AppState.elements;
@@ -398,17 +450,13 @@ async function updateStats() {
 
         // Update recognition button
         if (!data.recognition_available) {
+            // Permite intentar activar para forzar carga de embeddings/modelo
+            toggleRecognitionBtn.disabled = false;
             updateButtonState(toggleRecognitionBtn, {
-                color: '#999',
-                disabled: true
+                text: 'Activar Reconocimiento',
+                color: '#f97316'
             });
-            recognitionInfo.textContent = 'Reconocimiento NO DISPONIBLE (instala face_recognition)';
-        } else if (!data.model_loaded) {
-            updateButtonState(toggleRecognitionBtn, {
-                color: '#999',
-                disabled: true
-            });
-            recognitionInfo.textContent = 'Sin modelo entrenado (ejecuta train_model.py)';
+            recognitionInfo.textContent = 'Reconocimiento NO DISPONIBLE (intenta activar tras configurar BD/embeddings)';
         } else {
             toggleRecognitionBtn.disabled = false;
             if (data.recognition_enabled) {
@@ -416,13 +464,13 @@ async function updateStats() {
                     text: 'Desactivar Reconocimiento',
                     color: '#ef4444'
                 });
-                recognitionInfo.textContent = 'Reconocimiento facial ACTIVADO - 15-20 FPS';
+                recognitionInfo.textContent = 'Reconocimiento facial ACTIVADO';
             } else {
                 updateButtonState(toggleRecognitionBtn, {
                     text: 'Activar Reconocimiento',
                     color: '#6366f1'
                 });
-                recognitionInfo.textContent = 'Reconocimiento facial DISPONIBLE';
+                recognitionInfo.textContent = 'Reconocimiento facial DISPONIBLE (SFace)';
             }
         }
 
@@ -466,6 +514,9 @@ function init() {
 
     // Update Arduino status every 5 seconds
     setInterval(updateArduinoStatus, 5000);
+
+    // Load allowed users list
+    loadAllowed();
 }
 
 // Start application when DOM is ready

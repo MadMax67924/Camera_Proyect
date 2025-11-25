@@ -223,6 +223,16 @@
             </div>
         </section>
 
+        <!-- Lista de permitidos -->
+        <section class="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl shadow-2xl p-6 border border-gray-200/50 dark:border-gray-700/50 transition-all duration-300">
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">Personas permitidas (auto-A)</h2>
+            <div class="flex flex-col sm:flex-row gap-3 mb-4">
+                <input id="allowedInput" type="text" placeholder="Nombre exacto" class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-sm">
+                <button type="button" onclick="addAllowed()" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow-md text-sm">Agregar</button>
+            </div>
+            <ul id="allowedList" class="space-y-2"></ul>
+        </section>
+
     </div>
 
     <script>

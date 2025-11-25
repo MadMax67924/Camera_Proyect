@@ -13,3 +13,4 @@ pydantic
 sqlalchemy
 python-dotenv
 jinja2
+mysql-connector-python
