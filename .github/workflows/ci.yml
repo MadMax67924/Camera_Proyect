@@ -1,36 +1,38 @@
 
-name: CI (LunusushiFeatures)
+name: CI (LunusushiFeatureseSA)
 
 on:
   push:
-    branches: [ "LunusushiFeatures" ]
+    branches: [ "LunusushiFeatureseSA" ]
   pull_request:
-    branches: [ "LunusushiFeatures" ]
+    branches: [ "LunusushiFeatureseSA" ]
   workflow_dispatch:
 
 jobs:
   build-and-run:
     runs-on: ubuntu-latest
 
-    # ✅ Define la contraseña de MySQL aquí (no en options)
     services:
       mysql:
         image: mysql:8
         env:
           MYSQL_ROOT_PASSWORD: ${{ secrets.DB_PASSWORD }}
           MYSQL_DATABASE: ${{ secrets.DB_NAME }}
+          # Si quisieras un usuario app, podrías añadir:
+          # MYSQL_USER: appuser
+          # MYSQL_PASSWORD: ${{ secrets.DB_PASSWORD }}
         ports:
           - 3306:3306
-        # ✅ Usa la var del contenedor en el health-cmd
         options: >-
-          --health-cmd="mysqladmin ping -p$MYSQL_ROOT_PASSWORD"
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD || exit 1"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=30
+          --health-retries=60
+          --health-start-period=60s
 
-    # ✅ Variables disponibles para los steps del job
     env:
-      DB_HOST: 127.0.0.1
+      # ✅ Usa el hostname del servicio: mysql
+      DB_HOST: mysql
       DB_PORT: 3306
       DB_USER: root
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
@@ -45,37 +47,39 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Instalar MySQL client y dependencias del sistema
+      - name: Install MySQL client + system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y mysql-client
 
-      - name: Instalar dependencias Python
+      - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Si no tienes requirements.txt, puedes instalar aquí:
-          # pip install opencv-python numpy python-dotenv mysql-connector-python
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else
+            pip install opencv-python numpy python-dotenv mysql-connector-python
+          fi
 
-      - name: Esperar MySQL y aplicar schema
+      - name: Wait for MySQL and apply schema
         run: |
-          # Espera hasta que el servicio reporte salud
-          for i in $(seq 1 30); do
-            mysqladmin ping -h "${DB_HOST}" -p"${DB_PASSWORD}" && break
+          echo "Waiting for MySQL to be healthy..."
+          for i in $(seq 1 60); do
+            mysqladmin ping -h "${DB_HOST}" -uroot -p"${DB_PASSWORD}" && break
+            echo "mysql not ready yet; sleeping..."
             sleep 2
           done
 
-          # Crea la BD y aplica el esquema si existe el archivo
-          mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" \
-            -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME}"
+          echo "Creating DB if needed..."
+          mysql -h "${DB_HOST}" -P "${DB_PORT}" -uroot -p"${DB_PASSWORD}" \
+            -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`"
 
           if [ -f db/schema.sql ]; then
-            mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" < db/schema.sql
+            echo "Applying schema..."
+            mysql -h "${DB_HOST}" -P "${DB_PORT}" -uroot -p"${DB_PASSWORD}" "${DB_NAME}" < db/schema.sql
           else
-            echo "[WARN] db/schema.sql no encontrado. Asegúrate de subirlo."
+            echo "[WARN] db/schema.sql not found"
           fi
 
-      - name: Ejecutar run.sh
+      - name: Run script
         run: |
           chmod +x run.sh || true
           bash run.sh
