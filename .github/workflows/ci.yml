@@ -1,45 +1,23 @@
 
-name: CI (LunusushiFeatures - self-hosted)
-
-on:
-  push:
-    branches: [ "LunusushiFeatures" ]
-  pull_request:
-    branches: [ "LunusushiFeatures" ]
-  workflow_dispatch:
-
 jobs:
   build-and-run:
-    runs-on: self-hosted   # ✅ usa tu runner local
-    env:
-      DB_HOST: 127.0.0.1   # ✅ tu DB local (puede ser otra IP de tu LAN)
-      DB_PORT: 3306
-      DB_USER: root
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_NAME: ${{ secrets.DB_NAME }}
+    runs-on: self-hosted   # o ubuntu-latest si usas runner hospedado
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Instalar dependencias Python
+      # Si NO usas setup-python porque es self-hosted, asegúrate de tener python3 instalado
+      - name: Crear venv
         run: |
+          python3 -m venv .venv
+          source .venv/bin/activate
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; else
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
             pip install opencv-python numpy python-dotenv mysql-connector-python
           fi
 
-      - name: Probar conexión a DB
+      - name: Ejecutar script con venv
         run: |
-          mysql --version || true
-          # Si tienes cliente instalado en tu PC, puedes probar:
-          # mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" -e "SELECT 1"
-
-      - name: Ejecutar run.sh
-        run: |
-          chmod +x run.sh || true
+          source .venv/bin/activate
           bash run.sh
