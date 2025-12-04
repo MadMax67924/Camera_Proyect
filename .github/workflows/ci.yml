@@ -1,6 +1,5 @@
 
-name: CI (self-hosted con venv)
-
+name: CI (self-hosted con venv sin activar)
 on:
   push:
     branches: [ "LunusushiFeatures" ]
@@ -10,73 +9,50 @@ on:
 
 jobs:
   build-and-run:
-    runs-on: self-hosted   # ✅ ejecuta en tu runner local
+    runs-on: self-hosted
     env:
-      # Ajusta estos valores a tu entorno local/LAN:
-      DB_HOST: 127.0.0.1         # tu MariaDB/MySQL local (o IP de tu servidor)
+      DB_HOST: 127.0.0.1
       DB_PORT: 3306
       DB_USER: root
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       DB_NAME: ${{ secrets.DB_NAME }}
-
-      # Ruta de la venv (en el workspace del job)
       VENV_DIR: .venv
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # (Opcional) Mostrar versiones del sistema en tu runner local
-      - name: Mostrar Python del sistema
-        run: |
-          which python3 || true
-          python3 --version || true
-
-      - name: Crear y activar venv + instalar dependencias
+      - name: Crear venv
         shell: bash
         run: |
-          # Crear venv con el Python del sistema
           python3 -m venv "${VENV_DIR}"
+          "${VENV_DIR}/bin/python" -m pip install --upgrade pip setuptools wheel
 
-          # Activar venv
-          source "${VENV_DIR}/bin/activate"
-
-          # Actualizar pip/setuptools y instalar deps
-          python -m pip install --upgrade pip setuptools wheel
+      - name: Instalar dependencias en la venv
+        shell: bash
+        run: |
           if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
+            "${VENV_DIR}/bin/pip" install -r requirements.txt
           else
-            pip install opencv-python numpy python-dotenv mysql-connector-python
+            "${VENV_DIR}/bin/pip" install opencv-python numpy python-dotenv mysql-connector-python
           fi
 
-          # Guardar la activación para pasos siguientes
-          echo "source ${VENV_DIR}/bin/activate" >> $GITHUB_ENV
-
-      - name: Probar conexión a la BD (opcional)
+      - name: Aplicar schema (opcional)
         shell: bash
         run: |
-          # Si tienes cliente instalado, puedes probar con mysqladmin o mysql
-          # (En self-hosted depende de tu máquina, no del runner de GitHub)
-          command -v mysqladmin >/dev/null && mysqladmin ping -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" || echo "[INFO] mysqladmin no está disponible"
-          command -v mysql >/dev/null && mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" -e "SELECT 1" || echo "[INFO] cliente mysql no está disponible"
-
-      - name: Aplicar schema (si existe)
-        shell: bash
-        run: |
-          if [ -f db/schema.sql ]; then
-            if command -v mysql >/dev/null; then
-              mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`"
-              mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" < db/schema.sql
-            else
-              echo "[WARN] Cliente mysql no disponible; aplica el schema manualmente o instala el cliente en tu PC."
-            fi
+          if [ -f db/schema.sql ] && command -v mysql >/dev/null; then
+            mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" \
+              -e "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`"
+            mysql -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" "${DB_NAME}" < db/schema.sql
           else
-            echo "[WARN] db/schema.sql no encontrado."
+            echo "[INFO] Saltando aplicar schema (sin mysql o sin archivo)."
           fi
 
-      - name: Ejecutar run.sh dentro de la venv
+      - name: Ejecutar tu script con la venv (sin activar)
         shell: bash
         run: |
-          source "${VENV_DIR}/bin/activate"
           chmod +x run.sh || true
-          bash run.sh
+          # Ejecuta usando el intérprete de la venv
+          "${VENV_DIR}/bin/python" -m src.build_embeddings --dataset "$(pwd)/dataset/raw"
+          # o si run.sh invoca python internamente, haz:
+          # sed -i '1s|^|#!/usr/bin/env bash\n|' run.sh
+          # VENV_PY="${VENV_DIR}/bin/python" bash run.sh
