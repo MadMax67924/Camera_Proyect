@@ -25,4 +25,4 @@ jobs:
       - name: Ejecutar build_embeddings (Python local)
         shell: bash
         run: |
-          /run.sh
+          ./run.sh
