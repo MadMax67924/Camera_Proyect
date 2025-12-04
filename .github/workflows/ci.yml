@@ -10,19 +10,29 @@ on:
 
 jobs:
   run-local-python:
-    runs-on: self-hosted   # ✅ ejecuta en tu PC (runner)
+    runs-on: self-hosted
     env:
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
       DB_USER: root
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}   # define estos secrets en el repo
       DB_NAME: ${{ secrets.DB_NAME }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      # ✅ Ejecutar tu script real en src/scripts/build_embeddings.py
-      - name: Ejecutar build_embeddings (Python local)
+
+      - name: Mostrar entorno (diagnóstico)
         shell: bash
         run: |
+          echo "CWD: $(pwd)"
+          which python3 || true
+          python3 --version || true
+          # listado corto:
+          find . -maxdepth 3 -type f -print | sort
+
+      - name: Ejecutar build_embeddings con run.sh
+        shell: bash
+        run: |
+          chmod +x ./run.sh || true
           ./run.sh
