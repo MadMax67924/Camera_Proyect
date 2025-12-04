@@ -10,10 +10,9 @@ on:
 
 jobs:
   run-local-python:
-    runs-on: self-hosted   # ✅ tu PC
+    runs-on: self-hosted   # ✅ ejecuta en tu PC (runner)
     env:
-      # Ajusta estos valores a tu entorno local/LAN:
-      DB_HOST: 127.0.0.1          # o IP del servidor de BD
+      DB_HOST: 127.0.0.1
       DB_PORT: 3306
       DB_USER: root
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
@@ -22,35 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Mostrar entorno local
-        shell: bash
-        run: |
-          echo "CWD: $(pwd)"
-          which python3 || true
-          python3 --version || true
-          # Opcional: listar árbol del repo
-          find . -maxdepth 3 -type f -print | sort
-
-      # Si quieres validar acceso a la BD con el cliente instalado en tu PC
-      - name: Probar conexión a BD (opcional)
-        shell: bash
-        run: |
-          command -v mysqladmin >/dev/null && mysqladmin ping -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" -p"${DB_PASSWORD}" || echo "[INFO] mysqladmin no disponible"
-
-      # Ejecutar tu script Python con el Python del sistema (ajusta la ruta real del script)
+      # ✅ Ejecutar tu script real en src/scripts/build_embeddings.py
       - name: Ejecutar build_embeddings (Python local)
         shell: bash
         run: |
-          # Elige UNA de estas rutas según esté tu script:
-          if [ -f src/build_embeddings.py ]; then
-            python3 src/build_embeddings.py --dataset "$(pwd)/dataset/raw"
-          elif [ -f build_embeddings.py ]; then
-            python3 build_embeddings.py --dataset "$(pwd)/dataset/raw"
-          elif [ -f scripts/build_embeddings.py ]; then
-            python3 scripts/build_embeddings.py --dataset "$(pwd)/dataset/raw"
-          else
-            echo "[ERROR] No encontré build_embeddings.py en src/, raíz, ni scripts/"
-            exit 2
-          fi
-
+          run.sh
