@@ -17,6 +17,8 @@ jobs:
       DB_USER: root
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}   # define estos secrets en el repo
       DB_NAME: ${{ secrets.DB_NAME }}
+      # Opcional: fija versión de Python
+      PYTHON_VERSION: "3.11"
 
     steps:
       - name: Checkout
@@ -26,13 +28,80 @@ jobs:
         shell: bash
         run: |
           echo "CWD: $(pwd)"
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS)"
+          which python || true
           which python3 || true
+          python --version || true
           python3 --version || true
-          # listado corto:
+          echo "Listado de archivos (profundidad 3):"
           find . -maxdepth 3 -type f -print | sort
+
+      # Si tu runner tiene internet, configura la versión de Python deseada:
+      - name: Setup Python (opcional si ya tienes python en el runner)
+        if: env.PYTHON_VERSION != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: true
+          cache: 'pip'
+
+      - name: Crear y activar venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Elige binario disponible
+          PY=$(command -v python3 || command -v python)
+          echo "Usando Python en: $PY"
+          "$PY" -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip wheel setuptools
+          # Cache de pip basada en requirements.txt
+          echo "Creando carpeta de cache .pip-cache"
+          mkdir -p .pip-cache
+
+      - name: Cache de dependencias pip
+        uses: actions/cache@v4
+        with:
+          path: .pip-cache
+          key: pip-${{ runner.os }}-${{ env.PYTHON_VERSION }}-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ env.PYTHON_VERSION }}-
+
+      - name: Instalar dependencias (requirements.txt)
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          if [ ! -f requirements.txt ]; then
+            echo "ERROR: no se encontró requirements.txt en el repo" >&2
+            exit 1
+          fi
+          # Usa cache local de pip
+          pip install --cache-dir .pip-cache -r requirements.txt
+          pip list
+
+      - name: Mostrar entorno (post-instalación)
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          which python
+          python --version
+          which pip
+          pip --version
 
       - name: Ejecutar build_embeddings con run.sh
         shell: bash
+        env:
+          # Pasa explícitamente variables necesarias a run.sh si las lee del entorno
+          DB_HOST: ${{ env.DB_HOST }}
+          DB_PORT: ${{ env.DB_PORT }}
+          DB_USER: ${{ env.DB_USER }}
+          DB_PASSWORD: ${{ env.DB_PASSWORD }}
+          DB_NAME: ${{ env.DB_NAME }}
         run: |
+          set -euo pipefail
           chmod +x ./run.sh || true
+          # Asegura que run.sh use el Python del venv
+          source .venv/bin/activate
           ./run.sh
