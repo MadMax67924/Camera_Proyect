@@ -23,19 +23,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Instalar dependencias (requirements.txt) sin venv (modo usuario)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .pip-cache
-          if [ ! -f requirements.txt ]; then
-            echo "ERROR: no se encontró requirements.txt en el repo" >&2
-            exit 1
-          fi
-          ${PYTHON_BIN} -m pip install --upgrade --user pip wheel setuptools
-          ${PYTHON_BIN} -m pip install --user --cache-dir .pip-cache -r requirements.txt
-          ${PYTHON_BIN} -m pip list
-
       - name: Ejecutar build_embeddings con run.sh
         shell: bash
         env:
