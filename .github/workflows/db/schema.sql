@@ -1,0 +1,19 @@
+
+CREATE DATABASE IF NOT EXISTS embeddingsOpenCV;
+USE embeddingsOpenCV;
+
+CREATE TABLE IF NOT EXISTS person (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(255) NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS embedding (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    person_id INT NOT NULL,
+    vector LONGBLOB NOT NULL,
+    image_path VARCHAR(1024),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (person_id) REFERENCES person(id)
+);
+
+ALTER TABLE embedding ADD UNIQUE KEY uniq_image_path (image_path);

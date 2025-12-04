@@ -1,0 +1,83 @@
+
+name: CI (LunusushiFeatureseSA)
+
+on:
+  # Ejecuta en push y PR únicamente en esta branch
+  push:
+    branches: [ "LunusushiFeatureseSA" ]
+  pull_request:
+    branches: [ "LunusushiFeatureseSA" ]
+  # Permite lanzar manualmente desde la pestaña Actions
+  workflow_dispatch:
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+
+    # Levanta MySQL dentro del job
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MYSQL_DATABASE: ${{ secrets.DB_NAME }}
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -p${{ secrets.DB_PASSWORD }}"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar cliente MySQL y demás deps del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-client
+
+      - name: Instalar dependencias Python
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Si no tienes requirements.txt, instala aquí tus paquetes:
+          # pip install opencv-python numpy python-dotenv mysql-connector-python
+
+      - name: Esperar MySQL y aplicar esquema
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: root
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          # Espera a que el servicio esté sano
+          for i in $(seq 1 30); do
+            mysqladmin ping -h 127.0.0.1 -p"${DB_PASSWORD}" && break
+            sleep 2
+          done
+          # Crea BD si no existe y aplica el schema
+          mysql -h 127.0.0.1 -uroot -p"${DB_PASSWORD}" -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME}"
+          if [ -f db/schema.sql ]; then
+            mysql -h 127.0.0.1 -uroot -p"${DB_PASSWORD}" "${DB_NAME}" < db/schema.sql
+          else
+            echo "[WARN] db/schema.sql no encontrado. Asegúrate de subirlo."
+          fi
+
+      - name: Ejecutar run.sh (apunta a MySQL del job)
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: root
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          chmod +x run.sh || true
+          bash run.sh
