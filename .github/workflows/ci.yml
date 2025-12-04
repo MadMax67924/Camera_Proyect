@@ -1,11 +1,11 @@
 
-name: CI (LunusushiFeatureseSA)
+name: CI (LunusushiFeatures)
 
 on:
   push:
-    branches: [ "LunusushiFeatureseSA" ]
+    branches: [ "LunusushiFeatures" ]
   pull_request:
-    branches: [ "LunusushiFeatureseSA" ]
+    branches: [ "LunusushiFeatures" ]
   workflow_dispatch:
 
 jobs:
