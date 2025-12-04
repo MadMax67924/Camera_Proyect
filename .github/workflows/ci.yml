@@ -1,4 +1,14 @@
 
+name: CI (LunusushiFeatures - self-hosted)
+
+on:
+  push:
+    branches: [ "LunusushiFeatures" ]
+  pull_request:
+    branches: [ "LunusushiFeatures" ]
+  workflow_dispatch:
+
+
 jobs:
   build-and-run:
     runs-on: self-hosted   # o ubuntu-latest si usas runner hospedado
